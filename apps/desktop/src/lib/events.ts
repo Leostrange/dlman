@@ -53,6 +53,7 @@ let pendingMediaMeta: {
   master_url: string;
   page_title?: string;
   variant_index?: number;
+  referrer?: string;
 } | undefined = undefined;
 
 export function getPendingDropUrls(): string[] {
@@ -349,6 +350,7 @@ export function setupEventListeners(): () => void {
               master_url: payload.media_master_url || payload.url,
               page_title: payload.media_page_title,
               variant_index: payload.variant_index,
+              referrer: payload.referrer,
             });
           } else {
             setPendingMediaMeta(undefined);

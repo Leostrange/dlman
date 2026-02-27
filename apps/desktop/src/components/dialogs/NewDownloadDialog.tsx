@@ -358,7 +358,7 @@ export function NewDownloadDialog() {
             filename: filenameToUse || null,
             page_title: mediaMeta.page_title || null,
             cookies: browserCookies || null,
-            referrer: url !== mediaMeta.master_url ? url : null,
+            referrer: mediaMeta.referrer || (url !== mediaMeta.master_url ? url : null),
           });
         } else {
           // Regular download — standard flow
