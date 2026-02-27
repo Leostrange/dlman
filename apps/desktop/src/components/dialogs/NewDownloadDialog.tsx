@@ -97,49 +97,64 @@ export function NewDownloadDialog() {
     master_url: string;
     page_title?: string;
     variant_index?: number;
+    referrer?: string;
   } | undefined>(undefined);
+
+  // Guard against React StrictMode double-firing effects.
+  // getPendingMediaMeta/Cookies/ClipboardUrls are consume-once functions that
+  // return undefined on the second call. Without this guard, StrictMode's
+  // second effect invocation clears all the pending values.
+  const pendingConsumedRef = useRef(false);
 
   // Reset state and check for pending URLs when dialog opens
   useEffect(() => {
-    if (showNewDownloadDialog) {
-      // Check for pending clipboard/drop URLs
-      const clipboardUrls = getPendingClipboardUrls();
-      const dropUrls = getPendingDropUrls();
-      const pendingUrls = clipboardUrls.length > 0 ? clipboardUrls : dropUrls;
-      
-      // Check for pending cookies from browser extension
-      const cookies = getPendingCookies();
-      setBrowserCookies(cookies);
-      
-      // Check for media metadata (HLS/DASH streaming)
-      const meta = getPendingMediaMeta();
-      setMediaMeta(meta);
-      
-      if (pendingUrls.length > 0) {
-        setUrl(pendingUrls[0]);
-      } else {
-        setUrl('');
-      }
-      
-      setFilename('');
-      setCustomFilename('');
-      setFilenameEdited(false);
-      setShowAdvancedPath(false);
-      setFileSize(null);
-      setProbeError(null);
-      setCategoryId(null);
-      setRememberPathForCategory(false);
-      setPathCustomized(false);
-      pathCustomizedRef.current = false;
-      // Force re-probe even if URL is the same as before
-      setProbeTrigger(prev => prev + 1);
-      
-      // Set queue to selected queue if viewing a queue, otherwise use Main queue
-      setQueueId(selectedQueueId ?? DEFAULT_QUEUE_ID);
-      
-      // Set default path
-      initializeDefaultPath();
+    if (!showNewDownloadDialog) {
+      // Dialog closing — reset the consumption guard for next open
+      pendingConsumedRef.current = false;
+      return;
     }
+
+    // StrictMode guard: skip consume-once reads on the second invocation
+    if (pendingConsumedRef.current) return;
+    pendingConsumedRef.current = true;
+
+    // Check for pending clipboard/drop URLs
+    const clipboardUrls = getPendingClipboardUrls();
+    const dropUrls = getPendingDropUrls();
+    const pendingUrls = clipboardUrls.length > 0 ? clipboardUrls : dropUrls;
+    
+    // Check for pending cookies from browser extension
+    const cookies = getPendingCookies();
+    setBrowserCookies(cookies);
+    
+    // Check for media metadata (HLS/DASH streaming)
+    const meta = getPendingMediaMeta();
+    setMediaMeta(meta);
+    
+    if (pendingUrls.length > 0) {
+      setUrl(pendingUrls[0]);
+    } else {
+      setUrl('');
+    }
+    
+    setFilename('');
+    setCustomFilename('');
+    setFilenameEdited(false);
+    setShowAdvancedPath(false);
+    setFileSize(null);
+    setProbeError(null);
+    setCategoryId(null);
+    setRememberPathForCategory(false);
+    setPathCustomized(false);
+    pathCustomizedRef.current = false;
+    // Force re-probe even if URL is the same as before
+    setProbeTrigger(prev => prev + 1);
+    
+    // Set queue to selected queue if viewing a queue, otherwise use Main queue
+    setQueueId(selectedQueueId ?? DEFAULT_QUEUE_ID);
+    
+    // Set default path
+    initializeDefaultPath();
   }, [showNewDownloadDialog, selectedQueueId]);
 
   const initializeDefaultPath = async () => {

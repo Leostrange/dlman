@@ -207,6 +207,16 @@ impl DlmanCore {
         category_id: Option<Uuid>,
         cookies: Option<String>,
     ) -> Result<Download, DlmanError> {
+        // Safety net: detect streaming URLs at the core level.
+        // If an m3u8/mpd URL reaches here (despite higher-level detection),
+        // redirect to the HLS/DASH pipeline instead of downloading as a file.
+        let url_path = url.split('?').next().unwrap_or(url).to_lowercase();
+        if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
+           url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
+            info!("[core::add_download] Intercepted streaming URL, redirecting to HLS pipeline: {}", url);
+            return self.download_hls_stream(url, None, None, None, cookies, None).await;
+        }
+
         // Validate URL
         let parsed_url = url::Url::parse(url)
             .map_err(|_| DlmanError::InvalidUrl(url.to_string()))?;
@@ -274,6 +284,14 @@ impl DlmanCore {
         category_id: Option<Uuid>,
         cookies: Option<String>,
     ) -> Result<Download, DlmanError> {
+        // Safety net: streaming URLs should never be queued as regular downloads
+        let url_path = url.split('?').next().unwrap_or(url).to_lowercase();
+        if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
+           url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
+            info!("[core::add_download_queued] Intercepted streaming URL, redirecting to HLS pipeline: {}", url);
+            return self.download_hls_stream(url, None, None, None, cookies, None).await;
+        }
+
         // Validate URL
         let parsed_url = url::Url::parse(url)
             .map_err(|_| DlmanError::InvalidUrl(url.to_string()))?;
@@ -784,7 +802,12 @@ impl DlmanCore {
         use crate::media::MediaResolver;
         use dlman_types::MediaProtocol;
 
-        info!("Starting HLS stream download: {}", master_url);
+        info!("========================================");
+        info!("[HLS] Starting stream download");
+        info!("[HLS] URL: {}", master_url);
+        info!("[HLS] cookies={} referrer={} filename={:?} page_title={:?}",
+            cookies.is_some(), referrer.is_some(), filename, page_title);
+        info!("========================================");
 
         // 1. Build a DetectedMedia struct so the resolver can work
         let detected = dlman_types::DetectedMedia {
@@ -824,7 +847,8 @@ impl DlmanCore {
         };
 
         info!(
-            "HLS variant chosen: {} ({})",
+            "[HLS] {} variants found. Chose: {} ({})",
+            variants.len(),
             chosen.label,
             chosen.url.chars().take(120).collect::<String>()
         );
@@ -838,7 +862,10 @@ impl DlmanCore {
             ));
         }
 
-        info!("HLS playlist has {} segments", segment_urls.len());
+        info!("[HLS] Media playlist has {} segments to download", segment_urls.len());
+        if let Some(first) = segment_urls.first() {
+            info!("[HLS] First segment: {}", first.chars().take(120).collect::<String>());
+        }
 
         // 4. Determine output filename — prefer page_title for human-readable names
         let out_filename = filename.unwrap_or_else(|| {
@@ -1035,6 +1062,8 @@ impl DlmanCore {
         let mut total_bytes: u64 = 0;
         let start = Instant::now();
 
+        info!("[HLS] Starting segment download: {} segments to {}", total_segments, out_path.display());
+
         for (i, seg_url) in segment_urls.iter().enumerate() {
             // Check cancel/pause token before each segment
             if cancel_token.load(Ordering::Acquire) {
@@ -1042,6 +1071,11 @@ impl DlmanCore {
                 return Err(DlmanError::InvalidOperation(
                     "Download cancelled/paused by user".to_string(),
                 ));
+            }
+
+            // Log first 3 segments and then every 50th for visibility
+            if i < 3 || (i + 1) % 50 == 0 || i == segment_urls.len() - 1 {
+                info!("[HLS] Downloading segment {}/{}: {}", i + 1, total_segments, &seg_url.chars().take(100).collect::<String>());
             }
 
             let mut request = client.get(seg_url);
@@ -1052,8 +1086,16 @@ impl DlmanCore {
                 request = request.header("Referer", r);
             }
 
-            let response = request.send().await?;
+            let response = request.send().await.map_err(|e| {
+                tracing::error!("[HLS] Network error on segment {}/{}: {}", i + 1, total_segments, e);
+                e
+            })?;
             if !response.status().is_success() {
+                tracing::error!(
+                    "[HLS] Segment {}/{} returned HTTP {} — URL: {}",
+                    i + 1, total_segments, response.status(),
+                    &seg_url.chars().take(150).collect::<String>()
+                );
                 return Err(DlmanError::ServerError {
                     status: response.status().as_u16(),
                     message: format!(

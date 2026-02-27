@@ -43,10 +43,12 @@ pub async fn add_download(
     start_later: Option<bool>,
     cookies: Option<String>,
 ) -> Result<Download, String> {
+    tracing::info!("[add_download] URL={} cookies={}", &url, cookies.is_some());
     // Auto-detect HLS/DASH streaming URLs and route to the streaming pipeline.
     // This ensures m3u8/mpd URLs work regardless of how they arrive (extension,
     // manual paste, context menu, etc.).
-    if let Some(_protocol) = is_streaming_url(&url) {
+    if let Some(protocol) = is_streaming_url(&url) {
+        tracing::info!("[add_download] Detected streaming URL ({}), routing to HLS pipeline", protocol);
         let filename = probed_info.as_ref().and_then(|p| p.filename.clone());
         return state
             .with_core_async(|core| async move {
@@ -227,6 +229,11 @@ pub async fn start_media_download(
     cookies: Option<String>,
     referrer: Option<String>,
 ) -> Result<dlman_types::Download, String> {
+    tracing::info!(
+        "[start_media_download] protocol={} variant={:?} cookies={} referrer={} url={}",
+        protocol, variant_index, cookies.is_some(), referrer.is_some(),
+        &master_url.chars().take(100).collect::<String>()
+    );
     if protocol != "hls" && protocol != "dash" {
         return Err(format!("Unsupported media protocol: {}", protocol));
     }
