@@ -244,16 +244,19 @@ export default defineBackground(() => {
               }
               browser.tabs.sendMessage(tab.id, { type: 'show-toast', count: 1 }).catch(() => {});
             } else {
-              // No detected media — try srcUrl from the context
-              if (info.srcUrl) {
-                await handleDownload(info.srcUrl, tab.url);
+              // No detected media — try srcUrl if it's a real media URL
+              // (skip blob:, data:, and page URLs which are useless)
+              const src = info.srcUrl;
+              if (src && !src.startsWith('blob:') && !src.startsWith('data:') && !src.startsWith('http://www.') && !src.startsWith('https://www.') && /\.(mp4|webm|m3u8|mpd|mkv|mov|m4v|flv)/i.test(src)) {
+                await handleDownload(src, tab.url);
                 browser.tabs.sendMessage(tab.id, { type: 'show-toast', count: 1 }).catch(() => {});
               }
             }
           } catch {
-            // Content script not ready — fall back to srcUrl
-            if (info.srcUrl) {
-              await handleDownload(info.srcUrl, tab?.url);
+            // Content script not ready — fall back to srcUrl only if it's a media URL
+            const src = info.srcUrl;
+            if (src && !src.startsWith('blob:') && !src.startsWith('data:') && /\.(mp4|webm|m3u8|mpd|mkv|mov|m4v|flv)/i.test(src)) {
+              await handleDownload(src, tab?.url);
             }
           }
         }
@@ -469,10 +472,10 @@ export default defineBackground(() => {
     return true;
   }
 
-  function notifyContentScript(tabId: number, url: string): void {
+  function notifyContentScript(tabId: number, url: string, protocol?: string): void {
     if (!markSent(tabId, url)) return;
-    console.log('[DLMan] Stream detected:', url.substring(0, 120));
-    browser.tabs.sendMessage(tabId, { type: 'stream-detected', url }).catch(() => {});
+    console.log('[DLMan] Stream detected:', url.substring(0, 120), protocol || '');
+    browser.tabs.sendMessage(tabId, { type: 'stream-detected', url, protocol }).catch(() => {});
   }
 
   function setupStreamDetection(): void {
@@ -496,6 +499,7 @@ export default defineBackground(() => {
           const isExtMatch = EXT_PATTERN.test(url);
           const isKeyword = KEYWORD_PATTERN.test(url);
 
+          // CDN path patterns combined with extension match (CDN path alone is too broad)
           if (!isExtMatch && !isKeyword) return;
 
           // Skip .ts segments (HLS chunks) — we want the m3u8 manifest, not each 2-second chunk
@@ -542,7 +546,12 @@ export default defineBackground(() => {
             }
           }
 
-          notifyContentScript(details.tabId, details.url);
+          // Determine protocol from MIME type for content script
+          const protocol = isManifest
+            ? (mime.includes('mpegurl') ? 'hls' : 'dash')
+            : 'direct';
+
+          notifyContentScript(details.tabId, details.url, protocol);
         },
         { urls: ['<all_urls>'] },
         ['responseHeaders'],

@@ -1,23 +1,21 @@
 /**
- * Video Overlay — IDM-style floating download button on videos.
+ * Video Overlay — IDM-style download button on detected videos.
  *
- * - Small, sleek pill with download icon
- * - Close (×) button to dismiss
- * - Quality dropdown when multiple variants exist
- * - Single-click download when only one quality
- * - Repositions on scroll / resize
- * - Scoped CSS with dlman-vo- prefix
+ * KEY DESIGN: Uses `position: fixed` appended to `<html>`, NOT inside the
+ * player's DOM. This prevents video player controls from intercepting clicks
+ * or z-index wars inside the player's stacking context.
+ *
+ * The button tracks the video element's viewport position on scroll/resize
+ * via getBoundingClientRect().
  */
 
 import type { DetectedMedia, MediaVariant, MediaDownloadRequest } from './media-types';
 
 const P = 'dlman-vo';
 const OVERLAY_ATTR = 'data-dlman-overlay-id';
-const Z = 2147483646;
+const Z = 2147483647; // Max z-index
 
-// Track dismissed overlays so they don't re-appear
 const dismissed = new Set<string>();
-
 let stylesReady = false;
 
 function ensureStyles(): void {
@@ -26,34 +24,28 @@ function ensureStyles(): void {
 
   const s = document.createElement('style');
   s.textContent = `
-.${P}-wrap{position:absolute;z-index:${Z};display:flex;align-items:center;gap:0;opacity:0;transform:translateY(-6px);transition:opacity .22s ease,transform .22s ease;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.${P}-wrap{position:fixed;z-index:${Z};display:flex;align-items:center;gap:0;opacity:0;transform:translateY(-6px);transition:opacity .22s ease,transform .22s ease;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 .${P}-wrap.${P}-show{opacity:1;transform:translateY(0)}
-.${P}-btn{display:flex;align-items:center;gap:5px;padding:6px 10px;background:rgba(0,0,0,.78);color:#fff;font-size:11.5px;font-weight:600;line-height:1;border:1px solid rgba(255,255,255,.13);border-radius:6px 0 0 6px;cursor:pointer;user-select:none;white-space:nowrap;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:background .15s ease}
-.${P}-btn:hover{background:rgba(37,99,235,.88)}
+.${P}-wrap.${P}-hide{display:none}
+.${P}-btn{display:flex;align-items:center;gap:5px;padding:6px 10px;background:rgba(0,0,0,.82);color:#fff;font-size:11.5px;font-weight:600;line-height:1;border:1px solid rgba(255,255,255,.15);border-radius:6px 0 0 6px;cursor:pointer;user-select:none;white-space:nowrap;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:background .15s ease;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.${P}-btn:hover{background:rgba(37,99,235,.9)}
 .${P}-btn:active{transform:scale(.97)}
 .${P}-btn.${P}-solo{border-radius:6px}
-.${P}-chevron{display:flex;align-items:center;padding:6px 6px;background:rgba(0,0,0,.78);color:#fff;border:1px solid rgba(255,255,255,.13);border-left:1px solid rgba(255,255,255,.08);border-radius:0 6px 6px 0;cursor:pointer;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:background .15s ease}
-.${P}-chevron:hover{background:rgba(37,99,235,.88)}
-.${P}-close{display:flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:4px;background:rgba(0,0,0,.55);color:rgba(255,255,255,.65);border:none;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;transition:background .15s,color .15s}
-.${P}-close:hover{background:rgba(239,68,68,.85);color:#fff}
+.${P}-chevron{display:flex;align-items:center;padding:6px 6px;background:rgba(0,0,0,.82);color:#fff;border:1px solid rgba(255,255,255,.15);border-left:1px solid rgba(255,255,255,.08);border-radius:0 6px 6px 0;cursor:pointer;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:background .15s ease;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.${P}-chevron:hover{background:rgba(37,99,235,.9)}
+.${P}-close{display:flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:4px;background:rgba(0,0,0,.6);color:rgba(255,255,255,.65);border:none;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;transition:background .15s,color .15s;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.${P}-close:hover{background:rgba(239,68,68,.9);color:#fff}
 .${P}-ico{width:14px;height:14px;flex-shrink:0}
-.${P}-dd{position:absolute;top:calc(100% + 4px);left:0;min-width:180px;background:rgba(15,23,42,.94);border:1px solid rgba(255,255,255,.1);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.55);padding:4px 0;opacity:0;transform:translateY(-4px);transition:opacity .18s ease,transform .18s ease;pointer-events:none;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.${P}-dd{position:absolute;top:calc(100% + 4px);left:0;min-width:180px;background:rgba(15,23,42,.95);border:1px solid rgba(255,255,255,.1);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.6);padding:4px 0;opacity:0;transform:translateY(-4px);transition:opacity .18s ease,transform .18s ease;pointer-events:none;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 .${P}-dd.${P}-open{opacity:1;transform:translateY(0);pointer-events:auto}
 .${P}-dd-hdr{padding:6px 10px 4px;font-size:10px;font-weight:700;color:rgba(148,163,184,.8);text-transform:uppercase;letter-spacing:.04em}
 .${P}-dd-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;transition:background .1s}
 .${P}-dd-item:hover{background:rgba(59,130,246,.18)}
-.${P}-dd-item:first-of-type{border-radius:4px 4px 0 0}
-.${P}-dd-item:last-of-type{border-radius:0 0 4px 4px}
 .${P}-dd-lbl{font-weight:600}
 .${P}-dd-meta{font-size:10px;color:#64748b}
-.${P}-dd-sep{height:1px;background:rgba(255,255,255,.07);margin:3px 0}
   `;
   document.documentElement.appendChild(s);
 }
-
-// ============================================================================
-// SVG Helpers
-// ============================================================================
 
 function icoDownload(): string {
   return `<svg class="${P}-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
@@ -62,10 +54,6 @@ function icoDownload(): string {
 function icoChevron(): string {
   return `<svg class="${P}-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 }
-
-// ============================================================================
-// Formatters
-// ============================================================================
 
 function fmtSize(b: number): string {
   if (b < 1024) return `${b} B`;
@@ -91,19 +79,26 @@ interface Overlay {
   video: HTMLVideoElement | null;
   wrap: HTMLElement;
   dropdown: HTMLElement | null;
-  reposition: (() => void) | null;
+  rafId: number | null;
 }
 
 export class VideoOverlayManager {
   private overlays = new Map<string, Overlay>();
   private onDownload: OnDownloadRequest;
+  private scrollHandler: (() => void) | null = null;
+  private resizeHandler: (() => void) | null = null;
 
   constructor(onDownload: OnDownloadRequest) {
     this.onDownload = onDownload;
     ensureStyles();
+
+    // Single scroll/resize listener repositions ALL overlays
+    this.scrollHandler = () => this.repositionAll();
+    this.resizeHandler = () => this.repositionAll();
+    window.addEventListener('scroll', this.scrollHandler, { passive: true, capture: true });
+    window.addEventListener('resize', this.resizeHandler, { passive: true });
   }
 
-  /** Show an overlay for detected media. */
   addOverlay(media: DetectedMedia, variants?: MediaVariant[]): void {
     if (dismissed.has(media.id)) return;
     if (this.overlays.has(media.id)) {
@@ -115,30 +110,20 @@ export class VideoOverlayManager {
     const video = this.findVideo(media);
     if (!video) return;
 
-    const parent = video.parentElement;
-    if (parent) {
-      const pos = getComputedStyle(parent).position;
-      if (pos === 'static') parent.style.position = 'relative';
-    }
-
     const hasMulti = variants && variants.length > 1;
     const wrap = document.createElement('div');
     wrap.className = `${P}-wrap`;
 
-    // Main download button
     const btn = document.createElement('div');
     btn.className = `${P}-btn` + (hasMulti ? '' : ` ${P}-solo`);
     btn.innerHTML = `${icoDownload()}<span>Download</span>`;
 
     if (hasMulti) {
-      // Click main button = best quality
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
         this.doDownload(media, variants, undefined);
       });
-
-      // Chevron button
       const chev = document.createElement('div');
       chev.className = `${P}-chevron`;
       chev.innerHTML = icoChevron();
@@ -150,7 +135,6 @@ export class VideoOverlayManager {
       wrap.appendChild(btn);
       wrap.appendChild(chev);
     } else {
-      // Single quality — click downloads
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -159,7 +143,6 @@ export class VideoOverlayManager {
       wrap.appendChild(btn);
     }
 
-    // Close (×) button
     const close = document.createElement('div');
     close.className = `${P}-close`;
     close.textContent = '×';
@@ -176,18 +159,14 @@ export class VideoOverlayManager {
       video,
       wrap,
       dropdown: null,
-      reposition: null,
+      rafId: null,
     };
 
-    this.position(wrap, video);
-    (parent || document.body).appendChild(wrap);
+    // Position using fixed coordinates then append to <html> root
+    this.positionFixed(wrap, video);
+    document.documentElement.appendChild(wrap);
 
     requestAnimationFrame(() => wrap.classList.add(`${P}-show`));
-
-    const repos = () => this.position(wrap, video);
-    window.addEventListener('scroll', repos, { passive: true });
-    window.addEventListener('resize', repos, { passive: true });
-    overlay.reposition = repos;
 
     this.overlays.set(media.id, overlay);
     video.setAttribute(OVERLAY_ATTR, media.id);
@@ -196,6 +175,12 @@ export class VideoOverlayManager {
   destroy(): void {
     for (const o of this.overlays.values()) this.cleanup(o);
     this.overlays.clear();
+    if (this.scrollHandler) {
+      window.removeEventListener('scroll', this.scrollHandler, true);
+    }
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+    }
   }
 
   removeOverlay(id: string): void {
@@ -204,6 +189,39 @@ export class VideoOverlayManager {
       this.cleanup(o);
       this.overlays.delete(id);
     }
+  }
+
+  // ---------- Reposition all overlays ----------
+
+  private repositionAll(): void {
+    for (const o of this.overlays.values()) {
+      if (!o.video) continue;
+      if (o.rafId) cancelAnimationFrame(o.rafId);
+      o.rafId = requestAnimationFrame(() => {
+        this.positionFixed(o.wrap, o.video!);
+        o.rafId = null;
+      });
+    }
+  }
+
+  // ---------- Fixed positioning ----------
+
+  private positionFixed(wrap: HTMLElement, video: HTMLVideoElement): void {
+    const vr = video.getBoundingClientRect();
+
+    // Hide if video is not visible (scrolled out of view)
+    if (vr.bottom < 0 || vr.top > window.innerHeight || vr.right < 0 || vr.left > window.innerWidth) {
+      wrap.classList.add(`${P}-hide`);
+      return;
+    }
+    wrap.classList.remove(`${P}-hide`);
+
+    // Place at top-right of the video, 10px inset
+    const top = vr.top + 10;
+    const left = vr.right - 10; // We'll use right-align via transform
+    wrap.style.top = `${top}px`;
+    wrap.style.left = `${left}px`;
+    wrap.style.transform = `translateX(-100%)` + (wrap.classList.contains(`${P}-show`) ? '' : ' translateY(-6px)');
   }
 
   // ---------- Dropdown ----------
@@ -270,18 +288,6 @@ export class VideoOverlayManager {
     this.onDownload({ media: variants ? { ...media, variants } : media, variant_index: idx });
   }
 
-  // ---------- Position ----------
-
-  private position(wrap: HTMLElement, video: HTMLVideoElement): void {
-    const parent = video.parentElement;
-    if (!parent) return;
-    const pr = parent.getBoundingClientRect();
-    const vr = video.getBoundingClientRect();
-    wrap.style.top = `${vr.top - pr.top + 10}px`;
-    wrap.style.right = `${pr.right - vr.right + 10}px`;
-    wrap.style.position = 'absolute';
-  }
-
   // ---------- Find Video ----------
 
   private findVideo(media: DetectedMedia): HTMLVideoElement | null {
@@ -294,7 +300,6 @@ export class VideoOverlayManager {
         if ((s as HTMLSourceElement).src && this.urlMatch((s as HTMLSourceElement).src, media.master_url)) return el;
       }
     }
-    // Fallback: largest video without overlay
     let best: HTMLVideoElement | null = null;
     let area = 0;
     for (const v of document.querySelectorAll('video')) {
@@ -320,10 +325,7 @@ export class VideoOverlayManager {
   private cleanup(o: Overlay): void {
     o.wrap.remove();
     o.dropdown?.remove();
-    if (o.reposition) {
-      window.removeEventListener('scroll', o.reposition);
-      window.removeEventListener('resize', o.reposition);
-    }
+    if (o.rafId) cancelAnimationFrame(o.rafId);
     if (o.video) o.video.removeAttribute(OVERLAY_ATTR);
   }
 }

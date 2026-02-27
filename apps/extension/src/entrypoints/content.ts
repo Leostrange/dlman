@@ -440,11 +440,12 @@ export default defineContentScript({
     // ========================================================================
 
     browser.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-      const msg = message as { type: string; url?: string; x?: number; y?: number };
+      const msg = message as { type: string; url?: string; protocol?: string; x?: number; y?: number };
 
       if (msg.type === 'stream-detected' && msg.url) {
         // Background's webRequest detected a stream URL — inject it into the detector
-        detector.injectStreamUrl(msg.url);
+        // Pass protocol hint if background already classified it
+        detector.injectStreamUrl(msg.url, msg.protocol as any);
         sendResponse({ ok: true });
         return true;
       }

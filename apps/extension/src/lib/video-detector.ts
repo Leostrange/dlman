@@ -95,17 +95,29 @@ function isVideoLargeEnough(el: HTMLVideoElement): boolean {
  * Detect if a video element is a thumbnail/preview — NOT the main player.
  * Thumbnail heuristics:
  * - `loop` attribute = auto-replaying preview
- * - `muted` + `autoplay` = hover/inline preview
- * - `playsinline` + `muted` + no controls = embedded preview
+ * - `muted` + `autoplay` + small = hover/inline preview
  * - Very short known duration = preview clip
+ *
+ * NOTE: Many main video players use `muted + autoplay` to comply with
+ * browser autoplay policies. We only flag muted+autoplay as thumbnail
+ * when the video is ALSO small or has `loop`. Large muted+autoplay
+ * videos are likely the main player that will be unmuted after
+ * user interaction.
  */
 function isThumbnailVideo(el: HTMLVideoElement): boolean {
+  const r = el.getBoundingClientRect();
+  const isSmall = r.width < MIN_WIDTH || r.height < MIN_HEIGHT;
+
   // Looping videos are almost always thumbnails / hover previews
   if (el.loop) return true;
-  // Muted + autoplay = auto-playing preview (not user-initiated playback)
-  if (el.muted && el.autoplay) return true;
+
+  // Muted + autoplay + small = thumbnail preview
+  // Large muted+autoplay videos are likely the main player (browser policy)
+  if (el.muted && el.autoplay && isSmall) return true;
+
   // If we know the duration and it's very short, it's a preview
   if (el.duration && Number.isFinite(el.duration) && el.duration < 5) return true;
+
   return false;
 }
 
@@ -173,12 +185,19 @@ export class VideoDetector {
    * Inject a URL detected externally (e.g. via webRequest in background).
    * If a matching large video element exists, attaches to it immediately.
    * Otherwise the URL is queued and matched when a suitable video appears.
+   *
+   * The optional `protocol` parameter allows the caller (background script)
+   * to pass the already-determined protocol, so URLs without obvious file
+   * extensions (e.g. CDN endpoints) are still properly handled.
    */
-  injectStreamUrl(url: string): void {
+  injectStreamUrl(url: string, protocol?: MediaProtocol): void {
     if (this.dead) return;
 
-    const protocol = classifyUrl(url);
-    if (!protocol) return;
+    // Use provided protocol, or try to classify from URL
+    const proto = protocol || classifyUrl(url);
+    // If we still can't classify, default to 'direct' — the background script
+    // already confirmed this is a video URL via Content-Type header.
+    const finalProto: MediaProtocol = proto || 'direct';
 
     const id = stableId(url);
     if (this.seen.has(id)) return;
@@ -187,11 +206,11 @@ export class VideoDetector {
     const video = this.findLargestUntaggedVideo();
     if (video) {
       this.seen.add(id);
-      this.emitMediaForVideo(url, protocol, video);
+      this.emitMediaForVideo(url, finalProto, video);
     } else {
       // Queue for later matching
       if (!this.pendingStreams.some((s) => stableId(s.url) === id)) {
-        this.pendingStreams.push({ url, protocol });
+        this.pendingStreams.push({ url, protocol: finalProto });
       }
     }
   }

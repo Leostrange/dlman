@@ -728,6 +728,310 @@ impl DlmanCore {
     }
     
     // ========================================================================
+    // HLS / DASH Streaming Download
+    // ========================================================================
+
+    /// Download an HLS stream by fetching all segments and concatenating them.
+    ///
+    /// This creates a `Download` record in the database, fetches the m3u8
+    /// playlist to discover segment URLs, downloads each segment sequentially,
+    /// appends the bytes to a single output file, and reports progress via
+    /// `CoreEvent::DownloadProgress`.
+    ///
+    /// Returns the `Download` record (status = Completed once finished).
+    pub async fn download_hls_stream(
+        &self,
+        master_url: &str,
+        variant_index: Option<usize>,
+        filename: Option<String>,
+        cookies: Option<String>,
+        referrer: Option<String>,
+    ) -> Result<Download, DlmanError> {
+        use crate::media::MediaResolver;
+        use dlman_types::MediaProtocol;
+        use std::time::Instant;
+        use tokio::io::AsyncWriteExt;
+
+        info!("Starting HLS stream download: {}", master_url);
+
+        // 1. Build a DetectedMedia struct so the resolver can work
+        let detected = dlman_types::DetectedMedia {
+            id: Uuid::new_v4().to_string(),
+            page_url: referrer.clone().unwrap_or_default(),
+            page_title: None,
+            master_url: master_url.to_string(),
+            protocol: MediaProtocol::Hls,
+            variants: vec![],
+            mime_type: Some("application/vnd.apple.mpegurl".to_string()),
+            filename: filename.clone(),
+            duration: None,
+            thumbnail: None,
+            cookies: cookies.clone(),
+            referrer: referrer.clone(),
+        };
+
+        // 2. Resolve variants from the m3u8
+        let http_client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .build()
+            .unwrap_or_default();
+        let resolver = MediaResolver::new(http_client.clone());
+        let variants = resolver.resolve(&detected).await?;
+
+        if variants.is_empty() {
+            return Err(DlmanError::InvalidOperation(
+                "No variants found in HLS stream".to_string(),
+            ));
+        }
+
+        // Pick the requested variant (or best quality = index 0)
+        let chosen = if let Some(idx) = variant_index {
+            variants.get(idx).unwrap_or(&variants[0])
+        } else {
+            &variants[0]
+        };
+
+        info!(
+            "HLS variant chosen: {} ({})",
+            chosen.label,
+            chosen.url.chars().take(120).collect::<String>()
+        );
+
+        // 3. Get segment URLs for the chosen variant
+        let segment_urls = resolver.get_segments(&detected, chosen).await?;
+
+        if segment_urls.is_empty() {
+            return Err(DlmanError::InvalidOperation(
+                "No segments found in HLS media playlist".to_string(),
+            ));
+        }
+
+        info!("HLS playlist has {} segments", segment_urls.len());
+
+        // 4. Determine output filename
+        let out_filename = filename.unwrap_or_else(|| {
+            // Try to derive from the master URL, fall back to generic name
+            let name = url::Url::parse(master_url)
+                .ok()
+                .and_then(|u| {
+                    u.path_segments()
+                        .and_then(|s| s.last().map(|s| s.to_string()))
+                })
+                .unwrap_or_else(|| "video".to_string());
+            // Replace m3u8 extension with ts
+            if name.ends_with(".m3u8") {
+                name.replace(".m3u8", ".ts")
+            } else if name.contains('.') {
+                name
+            } else {
+                format!("{}.ts", name)
+            }
+        });
+
+        // Ensure .ts extension for concatenated HLS segments
+        let out_filename = if !out_filename.ends_with(".ts") && !out_filename.ends_with(".mp4") {
+            format!("{}.ts", out_filename.trim_end_matches(".m3u8"))
+        } else {
+            out_filename
+        };
+
+        // 5. Get download destination from settings
+        let settings = self.get_settings().await;
+        let destination = settings.default_download_path.clone();
+
+        // Ensure directory exists
+        tokio::fs::create_dir_all(&destination).await?;
+
+        let unique_filename =
+            Self::get_unique_filename(&destination, &out_filename, self.download_manager.db())
+                .await;
+
+        // 6. Create a Download record in the DB
+        let mut download = Download::new(master_url.to_string(), destination.clone(), Uuid::nil());
+        download.filename = unique_filename.clone();
+        download.status = DownloadStatus::Downloading;
+        download.cookies = cookies.clone();
+        // We don't know total size until all segments are fetched, set to None initially
+        download.size = None;
+        download.downloaded = 0;
+
+        self.download_manager
+            .db()
+            .upsert_download(&download)
+            .await?;
+        self.emit(CoreEvent::DownloadAdded {
+            download: download.clone(),
+        });
+        self.emit(CoreEvent::DownloadStatusChanged {
+            id: download.id,
+            status: DownloadStatus::Downloading,
+            error: None,
+        });
+
+        let download_id = download.id;
+        let out_path = destination.join(&unique_filename);
+
+        // 7. Download all segments sequentially and append to output file
+        let core = self.clone();
+        let cookies_clone = cookies.clone();
+        let referrer_clone = referrer.clone();
+
+        tokio::spawn(async move {
+            let result = Self::download_hls_segments(
+                &core,
+                download_id,
+                &http_client,
+                &segment_urls,
+                &out_path,
+                cookies_clone.as_deref(),
+                referrer_clone.as_deref(),
+            )
+            .await;
+
+            match result {
+                Ok(total_bytes) => {
+                    info!(
+                        "HLS download complete: {} ({} bytes, {} segments)",
+                        out_path.display(),
+                        total_bytes,
+                        segment_urls.len()
+                    );
+                    // Update download record as completed
+                    let mut dl = Download::new(String::new(), PathBuf::new(), Uuid::nil());
+                    if let Ok(Some(existing)) =
+                        core.download_manager.db().load_download(download_id).await
+                    {
+                        dl = existing;
+                    }
+                    dl.size = Some(total_bytes);
+                    dl.downloaded = total_bytes;
+                    dl.status = DownloadStatus::Completed;
+                    dl.completed_at = Some(chrono::Utc::now());
+                    let _ = core.download_manager.db().upsert_download(&dl).await;
+
+                    core.emit(CoreEvent::DownloadProgress {
+                        id: download_id,
+                        downloaded: total_bytes,
+                        total: Some(total_bytes),
+                        speed: 0,
+                        eta: Some(0),
+                    });
+                    core.emit(CoreEvent::DownloadStatusChanged {
+                        id: download_id,
+                        status: DownloadStatus::Completed,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("HLS download failed: {}", e);
+                    let _ = core
+                        .download_manager
+                        .db()
+                        .update_download_status(
+                            download_id,
+                            DownloadStatus::Failed,
+                            Some(e.to_string()),
+                        )
+                        .await;
+                    core.emit(CoreEvent::DownloadStatusChanged {
+                        id: download_id,
+                        status: DownloadStatus::Failed,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        });
+
+        Ok(download)
+    }
+
+    /// Internal: download every HLS segment and write them to a single file.
+    async fn download_hls_segments(
+        core: &DlmanCore,
+        download_id: Uuid,
+        client: &reqwest::Client,
+        segment_urls: &[String],
+        out_path: &std::path::Path,
+        cookies: Option<&str>,
+        referrer: Option<&str>,
+    ) -> Result<u64, DlmanError> {
+        use std::time::Instant;
+        use tokio::io::AsyncWriteExt;
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(out_path)
+            .await?;
+
+        let total_segments = segment_urls.len() as u64;
+        let mut total_bytes: u64 = 0;
+        let start = Instant::now();
+
+        for (i, seg_url) in segment_urls.iter().enumerate() {
+            let mut request = client.get(seg_url);
+            if let Some(c) = cookies {
+                request = request.header("Cookie", c);
+            }
+            if let Some(r) = referrer {
+                request = request.header("Referer", r);
+            }
+
+            let response = request.send().await?;
+            if !response.status().is_success() {
+                return Err(DlmanError::ServerError {
+                    status: response.status().as_u16(),
+                    message: format!(
+                        "Failed to download HLS segment {}/{}: HTTP {}",
+                        i + 1,
+                        total_segments,
+                        response.status()
+                    ),
+                });
+            }
+
+            let bytes = response.bytes().await?;
+            file.write_all(&bytes).await?;
+            total_bytes += bytes.len() as u64;
+
+            // Emit progress: estimate total from average segment size
+            let elapsed = start.elapsed().as_secs_f64().max(0.01);
+            let speed = (total_bytes as f64 / elapsed) as u64;
+            let avg_seg_size = total_bytes / (i as u64 + 1);
+            let estimated_total = avg_seg_size * total_segments;
+            let remaining_bytes = estimated_total.saturating_sub(total_bytes);
+            let eta = if speed > 0 {
+                Some(remaining_bytes / speed)
+            } else {
+                None
+            };
+
+            core.emit(CoreEvent::DownloadProgress {
+                id: download_id,
+                downloaded: total_bytes,
+                total: Some(estimated_total),
+                speed,
+                eta,
+            });
+
+            // Update DB periodically (every 10 segments)
+            if (i + 1) % 10 == 0 || i == segment_urls.len() - 1 {
+                if let Ok(Some(mut dl)) =
+                    core.download_manager.db().load_download(download_id).await
+                {
+                    dl.downloaded = total_bytes;
+                    dl.size = Some(estimated_total);
+                    let _ = core.download_manager.db().upsert_download(&dl).await;
+                }
+            }
+        }
+
+        file.flush().await?;
+        Ok(total_bytes)
+    }
+
+    // ========================================================================
     // Export/Import
     // ========================================================================
     

@@ -450,30 +450,48 @@ async fn handle_media_download(
             })
         }
         MediaProtocol::Hls | MediaProtocol::Dash => {
-            // Streaming media — emit specialized event with full media info.
-            // The frontend will show a media download dialog with quality options.
-            let payload = serde_json::json!({
-                "media": req.media,
-                "variant_index": req.variant_index,
-                "output_filename": req.output_filename,
-                "queue_id": req.queue_id,
-            });
+            // HLS/DASH: download ALL segments and concatenate into one file.
+            // Uses DlmanCore::download_hls_stream which:
+            //   1. Resolves the m3u8 → picks variant → parses segment URLs
+            //   2. Downloads every segment sequentially
+            //   3. Concatenates into a single .ts file
+            //   4. Reports progress via CoreEvent
 
-            if let Err(e) = app_handle.emit("show-media-download-dialog", payload) {
-                return axum::Json(MediaDownloadResponse {
-                    success: false,
-                    download_id: None,
-                    error: Some(format!("Failed to open media dialog: {}", e)),
-                });
+            let variant_index = req.variant_index;
+            let master_url = req.media.master_url.clone();
+            let filename = req.output_filename.or(req.media.filename);
+            let cookies = req.media.cookies.clone();
+            let referrer = req.media.referrer.clone();
+
+            match state
+                .core
+                .download_hls_stream(
+                    &master_url,
+                    variant_index,
+                    filename,
+                    cookies,
+                    referrer,
+                )
+                .await
+            {
+                Ok(download) => {
+                    request_attention(app_handle);
+
+                    axum::Json(MediaDownloadResponse {
+                        success: true,
+                        download_id: Some(download.id),
+                        error: None,
+                    })
+                }
+                Err(e) => {
+                    tracing::error!("HLS download failed to start: {}", e);
+                    axum::Json(MediaDownloadResponse {
+                        success: false,
+                        download_id: None,
+                        error: Some(format!("HLS download failed: {}", e)),
+                    })
+                }
             }
-
-            request_attention(app_handle);
-
-            axum::Json(MediaDownloadResponse {
-                success: true,
-                download_id: None,
-                error: None,
-            })
         }
     }
 }
