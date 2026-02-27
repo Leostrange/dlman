@@ -448,9 +448,21 @@ async fn handle_media_download(
         }
     };
 
-    // Build a human-readable filename from page title or URL
-    let filename = req.output_filename.clone()
+    // Build a human-readable filename from page title or URL.
+    // Filter out manifest filenames (master.m3u8 etc.) — they're not useful.
+    let clean_filename = req.output_filename.clone()
         .or_else(|| req.media.filename.clone())
+        .and_then(|f| {
+            let lower = f.to_lowercase();
+            if lower.ends_with(".m3u8") || lower.ends_with(".mpd")
+                || lower == "master" || lower == "index" || lower == "playlist"
+            {
+                None // useless manifest name, skip it
+            } else {
+                Some(f)
+            }
+        });
+    let filename = clean_filename
         .or_else(|| {
             req.media.page_title.as_ref().map(|title| {
                 let sanitized: String = title

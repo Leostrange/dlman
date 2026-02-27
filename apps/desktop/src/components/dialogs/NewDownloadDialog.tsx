@@ -235,16 +235,34 @@ export function NewDownloadDialog() {
           setFileSize(null);
           setRequiresAuth(false);
         } else if (info) {
-          setFilename(info.filename);
+          // For HLS/DASH streams, the probed filename is the manifest name
+          // (e.g. "master.m3u8") which is useless. Use page_title instead.
+          let probedName = info.filename;
+          const lower = probedName.toLowerCase();
+          if (lower.endsWith('.m3u8') || lower.endsWith('.mpd') ||
+              lower === 'master' || lower === 'index' || lower === 'playlist') {
+            // Try to use page_title from media metadata
+            if (mediaMeta?.page_title) {
+              const sanitized = mediaMeta.page_title.replace(/[\/\\:*?"<>|]/g, '_').trim();
+              if (sanitized.length > 0 && sanitized.length <= 200) {
+                probedName = sanitized + '.ts';
+              } else {
+                probedName = 'video.ts';
+              }
+            } else {
+              probedName = 'video.ts';
+            }
+          }
+          setFilename(probedName);
           // Only set custom filename if user hasn't edited it
           if (!filenameEdited) {
-            setCustomFilename(info.filename);
+            setCustomFilename(probedName);
           }
           setFileSize(info.size ?? null);
           setProbeError(null);
           setRequiresAuth(info.requires_auth ?? false);
           // Auto-detect category from filename
-          updateCategoryFromFilename(info.filename);
+          updateCategoryFromFilename(probedName);
         }
       } catch (err) {
         if (cancelled) return;
@@ -259,7 +277,7 @@ export function NewDownloadDialog() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [url, probeTrigger, updateCategoryFromFilename, showNewDownloadDialog]);
+  }, [url, probeTrigger, updateCategoryFromFilename, showNewDownloadDialog, mediaMeta]);
 
   const handlePasteFromClipboard = useCallback(async () => {
     try {

@@ -81,8 +81,19 @@ function stableId(url: string): string {
 
 function suggestFilename(url: string): string | undefined {
   try {
-    const seg = new URL(url).pathname.split('/').pop();
-    if (seg?.includes('.')) return decodeURIComponent(seg.split('?')[0]);
+    const pathname = new URL(url).pathname;
+    // Walk backwards through path segments, skipping manifest names
+    const parts = pathname.split('/').filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const seg = decodeURIComponent(parts[i].split('?')[0]).toLowerCase();
+      // Skip HLS/DASH manifest files — these are not meaningful filenames
+      if (seg.endsWith('.m3u8') || seg.endsWith('.mpd') ||
+          seg === 'master' || seg === 'index' || seg === 'playlist' ||
+          seg === 'hls' || seg === 'dash' || !seg.includes('.')) {
+        continue;
+      }
+      return decodeURIComponent(parts[i].split('?')[0]);
+    }
   } catch {
     /* ignore */
   }

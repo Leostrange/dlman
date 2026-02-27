@@ -35,6 +35,16 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::info;
 use uuid::Uuid;
 
+/// Handle for an active HLS/DASH download task.
+/// Holds an abort handle so we can forcefully kill ALL in-flight HTTP requests.
+struct HlsTaskHandle {
+    /// Set to true to signal the task should stop.
+    cancel: Arc<AtomicBool>,
+    /// Abort handle for the management tokio task. Calling abort() immediately
+    /// cancels ALL child futures, including in-flight HTTP requests.
+    abort_handle: tokio::task::AbortHandle,
+}
+
 /// The main DLMan core instance
 #[derive(Clone)]
 pub struct DlmanCore {
@@ -50,9 +60,9 @@ pub struct DlmanCore {
     settings: Arc<RwLock<Settings>>,
     /// Event broadcaster
     event_tx: broadcast::Sender<CoreEvent>,
-    /// Cancel tokens for HLS/DASH streaming downloads (keyed by download UUID).
-    /// When set to true, the segment download loop will stop.
-    hls_cancel_tokens: Arc<RwLock<HashMap<Uuid, Arc<AtomicBool>>>>,
+    /// Active HLS/DASH download tasks (keyed by download UUID).
+    /// Used for pause/cancel — abort_handle kills all in-flight segment requests.
+    hls_tasks: Arc<RwLock<HashMap<Uuid, HlsTaskHandle>>>,
 }
 
 impl DlmanCore {
@@ -89,7 +99,7 @@ impl DlmanCore {
             storage: Arc::new(storage),
             settings: Arc::new(RwLock::new(settings)),
             event_tx,
-            hls_cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
+            hls_tasks: Arc::new(RwLock::new(HashMap::new())),
         };
         
         // Start the scheduler background task
@@ -347,11 +357,14 @@ impl DlmanCore {
     
     /// Pause a download (works for both regular and HLS/DASH downloads)
     pub async fn pause_download(&self, id: Uuid) -> Result<(), DlmanError> {
-        // Check if this is an HLS streaming download — signal its cancel token
-        if let Some(token) = self.hls_cancel_tokens.read().await.get(&id) {
-            token.store(true, Ordering::Release);
-            info!("Signaled cancel for HLS download {}", id);
-            // Update DB status
+        // Check if this is an active HLS streaming download
+        if let Some(task) = self.hls_tasks.write().await.remove(&id) {
+            // 1. Signal the cancel flag (cooperative)
+            task.cancel.store(true, Ordering::Release);
+            // 2. Abort the tokio task — forcefully kills ALL in-flight HTTP requests
+            task.abort_handle.abort();
+            info!("Paused HLS download {} — aborted all segment tasks", id);
+            // 3. Update DB status
             self.download_manager.db().update_download_status(id, DownloadStatus::Paused, None).await?;
             self.emit(CoreEvent::DownloadStatusChanged {
                 id,
@@ -359,6 +372,23 @@ impl DlmanCore {
                 error: None,
             });
             return Ok(());
+        }
+        // Not an active HLS task — might be a paused HLS download or regular download.
+        // Check if it's a streaming URL that's already paused.
+        if let Ok(dl) = self.get_download(id).await {
+            let url_lower = dl.url.split('?').next().unwrap_or(&dl.url).to_lowercase();
+            if url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8/")
+                || url_lower.ends_with(".mpd") || url_lower.contains(".mpd/")
+            {
+                // Already paused or no active task — just ensure DB is Paused
+                self.download_manager.db().update_download_status(id, DownloadStatus::Paused, None).await?;
+                self.emit(CoreEvent::DownloadStatusChanged {
+                    id,
+                    status: DownloadStatus::Paused,
+                    error: None,
+                });
+                return Ok(());
+            }
         }
         // Regular download — delegate to manager
         self.download_manager.pause(id).await?;
@@ -370,26 +400,30 @@ impl DlmanCore {
         let download = self.get_download(id).await?;
 
         // ── Streaming URL guard ─────────────────────────────────────────
-        // If the URL is an HLS/DASH manifest, it MUST go through the
-        // streaming pipeline — not the regular segment downloader.
-        // This is the single choke-point that all resume paths
-        // (manual resume, queue auto-start, scheduler) funnel through.
-        let url_path = download.url.split('?').next().unwrap_or(&download.url).to_lowercase();
-        if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
-           url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
-            info!("[resume_download] Detected streaming URL, routing to HLS/DASH pipeline: {}", &download.url);
-            // Re-run the full streaming pipeline (resolves variants, downloads segments, merges)
-            let _dl = self.download_hls_stream(
+        let url_lower = download.url.split('?').next().unwrap_or(&download.url).to_lowercase();
+        if url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8/")
+           || url_lower.ends_with(".mpd") || url_lower.contains(".mpd/") {
+
+            // If there's already an active task for this download, skip
+            if self.hls_tasks.read().await.contains_key(&id) {
+                info!("[resume_download] HLS download {} already has an active task, skipping", id);
+                return Ok(());
+            }
+
+            info!("[resume_download] Routing streaming URL to HLS/DASH pipeline: {}", &download.url);
+            // Re-download from scratch with fresh manifest URLs (HLS URLs expire!)
+            let _dl = self.download_hls_stream_with_id(
+                Some(id),
                 &download.url,
-                None,               // variant_index — pick best
+                None,
                 Some(download.filename.clone()),
-                None,               // page_title  
+                None, // page_title lost on resume, but filename is already set
                 download.cookies.clone(),
-                None,               // referrer
+                None,
             ).await?;
             return Ok(());
         }
-        // ────────────────────────────────────────────────────────────────
+        // ── End streaming guard ─────────────────────────────────────────
         
         // Get queue for speed limit lookup
         let queue = self.queue_manager.get_queue(download.queue_id).await;
@@ -443,10 +477,11 @@ impl DlmanCore {
     
     /// Cancel a download (works for both regular and HLS/DASH downloads)
     pub async fn cancel_download(&self, id: Uuid) -> Result<(), DlmanError> {
-        // Check if this is an HLS streaming download — signal its cancel token
-        if let Some(token) = self.hls_cancel_tokens.write().await.remove(&id) {
-            token.store(true, Ordering::Release);
-            info!("Cancelled HLS download {}", id);
+        // Check if there's an active HLS task — abort it forcefully
+        if let Some(task) = self.hls_tasks.write().await.remove(&id) {
+            task.cancel.store(true, Ordering::Release);
+            task.abort_handle.abort();
+            info!("Cancelled HLS download {} — aborted all segment tasks", id);
             self.download_manager.db().update_download_status(id, DownloadStatus::Cancelled, None).await?;
             self.emit(CoreEvent::DownloadStatusChanged {
                 id,
@@ -455,6 +490,24 @@ impl DlmanCore {
             });
             return Ok(());
         }
+
+        // No active task — might be paused. Check if it's a streaming URL.
+        if let Ok(dl) = self.get_download(id).await {
+            let url_lower = dl.url.split('?').next().unwrap_or(&dl.url).to_lowercase();
+            if url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8/")
+                || url_lower.ends_with(".mpd") || url_lower.contains(".mpd/")
+            {
+                info!("Cancelled paused HLS download {}", id);
+                self.download_manager.db().update_download_status(id, DownloadStatus::Cancelled, None).await?;
+                self.emit(CoreEvent::DownloadStatusChanged {
+                    id,
+                    status: DownloadStatus::Cancelled,
+                    error: None,
+                });
+                return Ok(());
+            }
+        }
+
         // Regular download — delegate to manager
         self.download_manager.cancel(id).await?;
         Ok(())
@@ -470,7 +523,8 @@ impl DlmanCore {
         if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
            url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
             info!("[retry_download] Detected streaming URL, routing to HLS/DASH pipeline: {}", &download.url);
-            let _dl = self.download_hls_stream(
+            let _dl = self.download_hls_stream_with_id(
+                Some(id),
                 &download.url,
                 None,
                 Some(download.filename.clone()),
@@ -821,14 +875,8 @@ impl DlmanCore {
 
     /// Download an HLS stream by fetching all segments and concatenating them.
     ///
-    /// This creates a `Download` record in the database, fetches the m3u8
-    /// playlist to discover segment URLs, downloads each segment sequentially,
-    /// appends the bytes to a single output file, and reports progress via
-    /// `CoreEvent::DownloadProgress`.
-    ///
-    /// Respects cancel tokens — pause/cancel from the UI will stop the loop.
-    ///
-    /// Returns the `Download` record (status = Downloading, completes async).
+    /// Creates a NEW Download record and starts the segment pipeline.
+    /// For resuming an existing HLS download, use `download_hls_stream_with_id`.
     pub async fn download_hls_stream(
         &self,
         master_url: &str,
@@ -838,8 +886,46 @@ impl DlmanCore {
         cookies: Option<String>,
         referrer: Option<String>,
     ) -> Result<Download, DlmanError> {
+        self.download_hls_stream_with_id(None, master_url, variant_index, filename, page_title, cookies, referrer).await
+    }
+
+    /// Core HLS/DASH download implementation.
+    ///
+    /// When `reuse_id` is `Some(uuid)`, the existing download record is reused
+    /// (for resume/retry) instead of creating a duplicate. When `None`, a new
+    /// record is created (fresh download from extension).
+    async fn download_hls_stream_with_id(
+        &self,
+        reuse_id: Option<Uuid>,
+        master_url: &str,
+        variant_index: Option<usize>,
+        filename: Option<String>,
+        page_title: Option<String>,
+        cookies: Option<String>,
+        referrer: Option<String>,
+    ) -> Result<Download, DlmanError> {
         use crate::media::MediaResolver;
         use dlman_types::MediaProtocol;
+
+        // Filter out manifest-like filenames — they're not meaningful names.
+        // The extension often sends the manifest filename ("master.m3u8") which is useless.
+        // Also filter old bad filenames like "master.ts" from DB records.
+        let filename = filename.and_then(|f| {
+            let lower = f.to_lowercase();
+            let stem = lower
+                .trim_end_matches(".ts")
+                .trim_end_matches(".mp4")
+                .trim_end_matches(".m3u8")
+                .trim_end_matches(".mpd");
+            if lower.ends_with(".m3u8") || lower.ends_with(".mpd")
+                || stem == "master" || stem == "index" || stem == "playlist"
+                || stem == "video" || stem.is_empty()
+            {
+                None
+            } else {
+                Some(f)
+            }
+        });
 
         info!("========================================");
         info!("[HLS] Starting stream download");
@@ -906,7 +992,17 @@ impl DlmanCore {
             info!("[HLS] First segment: {}", first.chars().take(120).collect::<String>());
         }
 
-        // 4. Determine output filename — prefer page_title for human-readable names
+        // 4. Determine output filename — prefer provided filename > page_title > URL-derived
+        // Build a quality suffix from the chosen variant label (e.g. " [720p]")
+        let quality_suffix = if !chosen.label.is_empty()
+            && chosen.label.to_lowercase() != "default"
+            && chosen.label.to_lowercase() != "unknown"
+        {
+            format!(" [{}]", chosen.label)
+        } else {
+            String::new()
+        };
+
         let out_filename = filename.unwrap_or_else(|| {
             if let Some(ref title) = page_title {
                 // Sanitize page title: remove illegal filename characters
@@ -916,24 +1012,33 @@ impl DlmanCore {
                     .collect();
                 let sanitized = sanitized.trim().to_string();
                 if !sanitized.is_empty() && sanitized.len() <= 200 {
-                    return format!("{}.ts", sanitized);
+                    return format!("{}{}.ts", sanitized, quality_suffix);
                 }
             }
-            // Fallback: derive from URL
-            let name = url::Url::parse(master_url)
-                .ok()
-                .and_then(|u| {
-                    u.path_segments()
-                        .and_then(|s| s.last().map(|s| s.to_string()))
-                })
-                .unwrap_or_else(|| "video".to_string());
-            if name.ends_with(".m3u8") {
-                name.replace(".m3u8", ".ts")
-            } else if name.contains('.') {
-                name
-            } else {
-                format!("{}.ts", name)
+            // Fallback: derive a meaningful name from the URL path
+            // e.g. https://cdn.example.com/hls/.../720P_4000K_12345.mp4/master.m3u8
+            //   → walk backwards through path segments to find something meaningful
+            if let Ok(u) = url::Url::parse(master_url) {
+                if let Some(segments) = u.path_segments() {
+                    let parts: Vec<&str> = segments.collect();
+                    // Walk backwards: skip manifest names like "master.m3u8", "index.m3u8"
+                    for &seg in parts.iter().rev() {
+                        let lower = seg.to_lowercase();
+                        if lower.ends_with(".m3u8") || lower.ends_with(".mpd")
+                            || lower == "hls" || lower == "dash" || seg.is_empty()
+                        {
+                            continue;
+                        }
+                        // Found a non-manifest segment — use it
+                        let name = seg.to_string();
+                        if name.ends_with(".mp4") || name.ends_with(".ts") {
+                            return name;
+                        }
+                        return format!("{}.ts", name);
+                    }
+                }
             }
+            "video.ts".to_string()
         });
 
         // Ensure .ts extension for concatenated HLS segments
@@ -950,44 +1055,88 @@ impl DlmanCore {
         // Ensure directory exists
         tokio::fs::create_dir_all(&destination).await?;
 
-        let unique_filename =
-            Self::get_unique_filename(&destination, &out_filename, self.download_manager.db())
-                .await;
-
-        // 6. Create a Download record in the DB
-        let mut download = Download::new(master_url.to_string(), destination.clone(), Uuid::nil());
-        download.filename = unique_filename.clone();
-        download.status = DownloadStatus::Downloading;
-        download.cookies = cookies.clone();
-        download.size = None;
-        download.downloaded = 0;
-
-        self.download_manager
-            .db()
-            .upsert_download(&download)
-            .await?;
-        self.emit(CoreEvent::DownloadAdded {
-            download: download.clone(),
-        });
-        self.emit(CoreEvent::DownloadStatusChanged {
-            id: download.id,
-            status: DownloadStatus::Downloading,
-            error: None,
-        });
+        // 6. Reuse existing download record, or create a new one
+        let (download, unique_filename) = if let Some(existing_id) = reuse_id {
+            // Resume/retry: reuse the existing download record
+            match self.download_manager.db().load_download(existing_id).await {
+                Ok(Some(mut dl)) => {
+                    // If the existing filename is a bad manifest-derived name,
+                    // upgrade it to the newly computed good filename.
+                    let fname_lower = dl.filename.to_lowercase();
+                    let fname_stem = fname_lower
+                        .trim_end_matches(".ts")
+                        .trim_end_matches(".mp4");
+                    if fname_stem == "master" || fname_stem == "index"
+                        || fname_stem == "playlist" || fname_stem == "video"
+                    {
+                        info!("[HLS] Upgrading bad filename '{}' → '{}'", dl.filename, out_filename);
+                        dl.filename = out_filename.clone();
+                    }
+                    let fname = dl.filename.clone();
+                    dl.status = DownloadStatus::Downloading;
+                    dl.error = None;
+                    dl.downloaded = 0;
+                    self.download_manager.db().upsert_download(&dl).await?;
+                    self.emit(CoreEvent::DownloadStatusChanged {
+                        id: dl.id,
+                        status: DownloadStatus::Downloading,
+                        error: None,
+                    });
+                    (dl, fname)
+                }
+                _ => {
+                    // Existing record not found — fall through to create new
+                    let unique_filename =
+                        Self::get_unique_filename(&destination, &out_filename, self.download_manager.db()).await;
+                    let mut download = Download::new(master_url.to_string(), destination.clone(), Uuid::nil());
+                    download.filename = unique_filename.clone();
+                    download.status = DownloadStatus::Downloading;
+                    download.cookies = cookies.clone();
+                    download.size = None;
+                    download.downloaded = 0;
+                    self.download_manager.db().upsert_download(&download).await?;
+                    self.emit(CoreEvent::DownloadAdded { download: download.clone() });
+                    self.emit(CoreEvent::DownloadStatusChanged {
+                        id: download.id,
+                        status: DownloadStatus::Downloading,
+                        error: None,
+                    });
+                    (download, unique_filename.clone())
+                }
+            }
+        } else {
+            // Fresh download — create new record
+            let unique_filename =
+                Self::get_unique_filename(&destination, &out_filename, self.download_manager.db()).await;
+            let mut download = Download::new(master_url.to_string(), destination.clone(), Uuid::nil());
+            download.filename = unique_filename.clone();
+            download.status = DownloadStatus::Downloading;
+            download.cookies = cookies.clone();
+            download.size = None;
+            download.downloaded = 0;
+            self.download_manager.db().upsert_download(&download).await?;
+            self.emit(CoreEvent::DownloadAdded { download: download.clone() });
+            self.emit(CoreEvent::DownloadStatusChanged {
+                id: download.id,
+                status: DownloadStatus::Downloading,
+                error: None,
+            });
+            (download, unique_filename.clone())
+        };
 
         let download_id = download.id;
         let out_path = destination.join(&unique_filename);
 
-        // 7. Create a cancel token and register it so pause/cancel can stop this task
+        // 7. Create a cancel token and register the task handle
         let cancel_token = Arc::new(AtomicBool::new(false));
-        self.hls_cancel_tokens.write().await.insert(download_id, cancel_token.clone());
 
-        // 8. Spawn the segment download task
+        // 8. Spawn the management task and register its abort handle
         let core = self.clone();
         let cookies_clone = cookies.clone();
         let referrer_clone = referrer.clone();
+        let cancel_for_task = cancel_token.clone();
 
-        tokio::spawn(async move {
+        let join_handle = tokio::spawn(async move {
             let result = Self::download_hls_segments(
                 &core,
                 download_id,
@@ -996,12 +1145,12 @@ impl DlmanCore {
                 &out_path,
                 cookies_clone.as_deref(),
                 referrer_clone.as_deref(),
-                &cancel_token,
+                &cancel_for_task,
             )
             .await;
 
-            // Remove the cancel token — task is done
-            core.hls_cancel_tokens.write().await.remove(&download_id);
+            // Task is done — remove ourselves from hls_tasks
+            core.hls_tasks.write().await.remove(&download_id);
 
             match result {
                 Ok(total_bytes) => {
@@ -1072,20 +1221,24 @@ impl DlmanCore {
             }
         });
 
+        // Store the task handle with its abort handle for pause/cancel
+        self.hls_tasks.write().await.insert(download_id, HlsTaskHandle {
+            cancel: cancel_token,
+            abort_handle: join_handle.abort_handle(),
+        });
+
         Ok(download)
     }
 
-    /// Internal: download HLS segments **concurrently** and merge into a single file.
+    /// Internal: download HLS segments concurrently and merge into a single file.
     ///
-    /// Architecture:
-    /// 1. Download segments in parallel (up to `MAX_CONCURRENT` at a time) into temp files
-    /// 2. Track per-segment completion via atomic counters for accurate progress
-    /// 3. Check `cancel_token` between batches so pause/cancel is responsive
-    /// 4. After all segments download, concatenate ordered temp files → final output
-    /// 5. Clean up temp directory
-    ///
-    /// This is dramatically faster than sequential downloads — typical HLS streams
-    /// have 200+ tiny segments and CDNs allow parallel connections.
+    /// Architecture (2026 best practice):
+    /// - Uses `Semaphore` to limit concurrency to MAX_CONCURRENT
+    /// - Segments are fed one at a time into `tokio::spawn` only when a
+    ///   permit is available. The cancel token is checked BEFORE each spawn.
+    /// - When pause/cancel calls `abort_handle.abort()`, all in-flight HTTP
+    ///   requests are instantly dropped (including bytes().await).
+    /// - Already-downloaded segments in temp_dir are kept for resume.
     async fn download_hls_segments(
         core: &DlmanCore,
         download_id: Uuid,
@@ -1108,7 +1261,7 @@ impl DlmanCore {
         let start = Instant::now();
 
         info!(
-            "[HLS] Starting concurrent segment download: {} segments, {} parallel, to {}",
+            "[HLS] Starting segment download: {} segments, {} parallel, to {}",
             total_segments, MAX_CONCURRENT, out_path.display()
         );
 
@@ -1117,88 +1270,96 @@ impl DlmanCore {
             .join(format!(".dlman_hls_{}", download_id));
         tokio::fs::create_dir_all(&temp_dir).await?;
 
-        // Shared state for progress tracking
+        // Shared progress counters
         let downloaded_bytes = Arc::new(AtomicU64::new(0));
         let completed_segments = Arc::new(AtomicU64::new(0));
         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
+        let failed = Arc::new(AtomicBool::new(false));
 
-        // Spawn concurrent download tasks for all segments
-        let mut handles = Vec::with_capacity(total_segments);
+        // Use JoinSet so abort_all() kills every in-flight task instantly
+        let mut join_set = tokio::task::JoinSet::new();
 
+        // Feed segments into the JoinSet. The semaphore limits how many run at once.
+        // We acquire the permit HERE (on the feeder) so that we block before spawning
+        // more tasks than MAX_CONCURRENT, and we check cancel between each spawn.
         for (i, seg_url) in segment_urls.iter().enumerate() {
+            // Check cancel BEFORE acquiring permit / spawning
+            if cancel_token.load(Ordering::Acquire) {
+                info!("[HLS] Cancel detected before segment {}, aborting remaining", i + 1);
+                join_set.abort_all();
+                return Err(DlmanError::InvalidOperation("Download cancelled/paused by user".into()));
+            }
+
+            // Skip segments already downloaded in a previous attempt
+            let seg_path = temp_dir.join(format!("seg_{:06}.ts", i));
+            if seg_path.exists() {
+                // Count the existing file towards progress
+                if let Ok(meta) = tokio::fs::metadata(&seg_path).await {
+                    let len = meta.len();
+                    downloaded_bytes.fetch_add(len, Ordering::Relaxed);
+                    completed_segments.fetch_add(1, Ordering::Relaxed);
+                }
+                continue;
+            }
+
+            // If another segment permanently failed, stop spawning
+            if failed.load(Ordering::Acquire) {
+                break;
+            }
+
+            // Acquire permit — blocks until a slot opens up
+            let permit = semaphore.clone().acquire_owned().await.map_err(|_| {
+                DlmanError::InvalidOperation("Semaphore closed".into())
+            })?;
+
             let client = client.clone();
             let seg_url = seg_url.clone();
-            let temp_dir = temp_dir.clone();
-            let cancel = cancel_token as *const AtomicBool;
-            // SAFETY: cancel_token lives for the entire duration of this function,
-            // and we await all handles before returning.
-            let cancel_ref = unsafe { &*cancel };
-            let sem = semaphore.clone();
+            let seg_path_clone = seg_path.clone();
             let bytes_counter = downloaded_bytes.clone();
             let seg_counter = completed_segments.clone();
             let core_clone = core.clone();
             let cookies_owned = cookies.map(|s| s.to_string());
             let referrer_owned = referrer.map(|s| s.to_string());
+            let failed_flag = failed.clone();
 
-            let handle = tokio::spawn(async move {
-                // Acquire semaphore permit (limits concurrency)
-                let _permit = sem.acquire().await.map_err(|_| {
-                    DlmanError::InvalidOperation("Semaphore closed".to_string())
-                })?;
+            join_set.spawn(async move {
+                let _permit = permit; // held until this task finishes
 
-                // Check cancel before starting
-                if cancel_ref.load(Ordering::Acquire) {
-                    return Err(DlmanError::InvalidOperation(
-                        "Download cancelled/paused by user".to_string(),
-                    ));
-                }
-
-                let seg_path = temp_dir.join(format!("seg_{:06}.ts", i));
-
-                // Retry loop for transient failures
                 let mut last_err = None;
                 for attempt in 0..MAX_RETRIES {
-                    if cancel_ref.load(Ordering::Acquire) {
-                        return Err(DlmanError::InvalidOperation(
-                            "Download cancelled/paused by user".to_string(),
-                        ));
-                    }
-
-                    let mut request = client.get(&seg_url);
+                    let mut req = client.get(&seg_url);
                     if let Some(ref c) = cookies_owned {
-                        request = request.header("Cookie", c.as_str());
+                        req = req.header("Cookie", c.as_str());
                     }
                     if let Some(ref r) = referrer_owned {
-                        request = request.header("Referer", r.as_str());
+                        req = req.header("Referer", r.as_str());
                     }
 
-                    match request.send().await {
-                        Ok(response) if response.status().is_success() => {
-                            match response.bytes().await {
+                    match req.send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            match resp.bytes().await {
                                 Ok(bytes) => {
                                     let len = bytes.len() as u64;
-                                    if let Err(e) = tokio::fs::write(&seg_path, &bytes).await {
-                                        last_err = Some(DlmanError::Io(e));
+                                    if let Err(e) = tokio::fs::write(&seg_path_clone, &bytes).await {
+                                        last_err = Some(format!("write error: {}", e));
                                         continue;
                                     }
 
-                                    // Update progress counters
+                                    // Update progress
                                     let prev = bytes_counter.fetch_add(len, Ordering::Relaxed);
                                     let done = seg_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                                    let total_downloaded = prev + len;
-
-                                    // Emit progress every segment
+                                    let total_dl = prev + len;
                                     let elapsed = start.elapsed().as_secs_f64().max(0.01);
-                                    let speed = (total_downloaded as f64 / elapsed) as u64;
-                                    let avg_size = total_downloaded / done;
-                                    let estimated_total = avg_size * total_segments as u64;
-                                    let remaining = estimated_total.saturating_sub(total_downloaded);
+                                    let speed = (total_dl as f64 / elapsed) as u64;
+                                    let avg_size = total_dl / done;
+                                    let est_total = avg_size * total_segments as u64;
+                                    let remaining = est_total.saturating_sub(total_dl);
                                     let eta = if speed > 0 { Some(remaining / speed) } else { None };
 
                                     core_clone.emit(CoreEvent::DownloadProgress {
                                         id: download_id,
-                                        downloaded: total_downloaded,
-                                        total: Some(estimated_total),
+                                        downloaded: total_dl,
+                                        total: Some(est_total),
                                         speed,
                                         eta,
                                     });
@@ -1211,28 +1372,19 @@ impl DlmanCore {
                                         );
                                     }
 
-                                    return Ok(len);
+                                    return Ok((i, len));
                                 }
-                                Err(e) => {
-                                    last_err = Some(DlmanError::Network(e));
-                                }
+                                Err(e) => { last_err = Some(format!("body error: {}", e)); }
                             }
                         }
-                        Ok(response) => {
-                            let status = response.status().as_u16();
-                            last_err = Some(DlmanError::ServerError {
-                                status,
-                                message: format!(
-                                    "Segment {}/{} HTTP {}", i + 1, total_segments, status
-                                ),
-                            });
+                        Ok(resp) => {
+                            let status = resp.status().as_u16();
+                            last_err = Some(format!("HTTP {} for segment {}/{}", status, i + 1, total_segments));
                         }
-                        Err(e) => {
-                            last_err = Some(DlmanError::Network(e));
-                        }
+                        Err(e) => { last_err = Some(format!("network error: {}", e)); }
                     }
 
-                    // Exponential backoff on retry
+                    // Backoff before retry
                     if attempt < MAX_RETRIES - 1 {
                         let delay = std::time::Duration::from_millis(500 * (1 << attempt));
                         tracing::warn!(
@@ -1243,57 +1395,51 @@ impl DlmanCore {
                     }
                 }
 
-                Err(last_err.unwrap_or_else(|| {
-                    DlmanError::Unknown(format!("Segment {} failed after {} retries", i + 1, MAX_RETRIES))
-                }))
+                // Permanent failure for this segment
+                failed_flag.store(true, Ordering::Release);
+                Err(DlmanError::Unknown(
+                    last_err.unwrap_or_else(|| format!("Segment {} failed after {} retries", i + 1, MAX_RETRIES))
+                ))
             });
-
-            handles.push(handle);
         }
 
-        // Wait for all segment downloads, collect results
-        let mut any_error: Option<DlmanError> = None;
-        for (i, handle) in handles.into_iter().enumerate() {
-            match handle.await {
+        // Drain all completed tasks
+        let mut first_error: Option<DlmanError> = None;
+        while let Some(result) = join_set.join_next().await {
+            match result {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    if e.to_string().contains("cancelled") || e.to_string().contains("paused") {
-                        // Cancel all remaining by setting the token
-                        cancel_token.store(true, Ordering::Release);
-                        any_error = Some(e);
-                        break;
+                    tracing::error!("[HLS] Segment failed: {}", e);
+                    if first_error.is_none() {
+                        first_error = Some(e);
                     }
-                    tracing::error!("[HLS] Segment {} failed: {}", i + 1, e);
-                    if any_error.is_none() {
-                        any_error = Some(e);
-                    }
+                }
+                Err(join_err) if join_err.is_cancelled() => {
+                    // Task was aborted by pause/cancel — expected
                 }
                 Err(join_err) => {
-                    tracing::error!("[HLS] Segment {} task panicked: {}", i + 1, join_err);
-                    if any_error.is_none() {
-                        any_error = Some(DlmanError::Unknown(format!("Task panicked: {}", join_err)));
+                    tracing::error!("[HLS] Task panicked: {}", join_err);
+                    if first_error.is_none() {
+                        first_error = Some(DlmanError::Unknown(format!("Task panicked: {}", join_err)));
                     }
-                }
-            }
-
-            // Update DB every 20 segments
-            if (i + 1) % 20 == 0 {
-                let total_dl = downloaded_bytes.load(Ordering::Relaxed);
-                let done = completed_segments.load(Ordering::Relaxed);
-                let avg = if done > 0 { total_dl / done } else { 0 };
-                let est = avg * total_segments as u64;
-                if let Ok(Some(mut dl)) = core.download_manager.db().load_download(download_id).await {
-                    dl.downloaded = total_dl;
-                    dl.size = Some(est);
-                    let _ = core.download_manager.db().upsert_download(&dl).await;
                 }
             }
         }
 
-        if let Some(err) = any_error {
-            // Clean up temp directory on failure
-            let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+        if let Some(err) = first_error {
+            // DON'T clean up temp directory on failure — segments are kept for resume
             return Err(err);
+        }
+
+        // Verify all segments exist
+        for i in 0..total_segments {
+            let seg_path = temp_dir.join(format!("seg_{:06}.ts", i));
+            if !seg_path.exists() {
+                let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+                return Err(DlmanError::InvalidOperation(format!(
+                    "Missing segment {} after download", i + 1
+                )));
+            }
         }
 
         // ========== Merge phase: concatenate temp segments in order ==========
@@ -1320,7 +1466,7 @@ impl DlmanCore {
         }
         out_file.flush().await?;
 
-        // Clean up temp directory
+        // Clean up temp directory (segments successfully merged)
         let _ = tokio::fs::remove_dir_all(&temp_dir).await;
 
         info!(
