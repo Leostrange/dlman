@@ -20,7 +20,7 @@ use axum::{
     Router,
 };
 use dlman_core::DlmanCore;
-use dlman_types::{CoreEvent, Download};
+use dlman_types::{CoreEvent, Download, MediaDownloadRequest, MediaDownloadResponse, MediaProtocol};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -155,6 +155,8 @@ impl BrowserServer {
             .route("/api/downloads/:id/pause", post(handle_pause_download))
             .route("/api/downloads/:id/resume", post(handle_resume_download))
             .route("/api/downloads/:id/cancel", post(handle_cancel_download))
+            // Media download — handles video streams from extension
+            .route("/api/media/download", post(handle_media_download))
             // WebSocket for real-time events (optional)
             .route("/ws", get(handle_websocket))
             .layer(cors)
@@ -392,6 +394,87 @@ async fn handle_cancel_download(
             success: false,
             error: Some(e.to_string()),
         }),
+    }
+}
+
+// ============================================================================
+// Media Download — handles video stream downloads from extension
+// ============================================================================
+
+/// POST /api/media/download — download a detected media stream
+///
+/// For direct files: opens the download dialog (same as show-dialog).
+/// For HLS/DASH: emits a Tauri event with the full media info so the
+/// frontend can show a specialized media download dialog.
+async fn handle_media_download(
+    State(state): axum::extract::State<SharedState>,
+    axum::Json(req): axum::Json<MediaDownloadRequest>,
+) -> impl axum::response::IntoResponse {
+    let state = state.read().await;
+    let app_handle = &state.app_handle;
+
+    match req.media.protocol {
+        MediaProtocol::Direct => {
+            // Direct file — use the standard download dialog flow
+            let download_url = if let Some(idx) = req.variant_index {
+                req.media
+                    .variants
+                    .get(idx)
+                    .map(|v| v.url.clone())
+                    .unwrap_or(req.media.master_url.clone())
+            } else {
+                req.media.master_url.clone()
+            };
+
+            let payload = serde_json::json!({
+                "url": download_url,
+                "referrer": req.media.referrer,
+                "filename": req.output_filename.or(req.media.filename),
+                "cookies": req.media.cookies,
+            });
+
+            if let Err(e) = app_handle.emit("show-new-download-dialog", payload) {
+                return axum::Json(MediaDownloadResponse {
+                    success: false,
+                    download_id: None,
+                    error: Some(format!("Failed to open download dialog: {}", e)),
+                });
+            }
+
+            request_attention(app_handle);
+
+            axum::Json(MediaDownloadResponse {
+                success: true,
+                download_id: None,
+                error: None,
+            })
+        }
+        MediaProtocol::Hls | MediaProtocol::Dash => {
+            // Streaming media — emit specialized event with full media info.
+            // The frontend will show a media download dialog with quality options.
+            let payload = serde_json::json!({
+                "media": req.media,
+                "variant_index": req.variant_index,
+                "output_filename": req.output_filename,
+                "queue_id": req.queue_id,
+            });
+
+            if let Err(e) = app_handle.emit("show-media-download-dialog", payload) {
+                return axum::Json(MediaDownloadResponse {
+                    success: false,
+                    download_id: None,
+                    error: Some(format!("Failed to open media dialog: {}", e)),
+                });
+            }
+
+            request_attention(app_handle);
+
+            axum::Json(MediaDownloadResponse {
+                success: true,
+                download_id: None,
+                error: None,
+            })
+        }
     }
 }
 

@@ -15,6 +15,7 @@
 
 mod engine;
 mod error;
+pub mod media;
 mod queue;
 mod scheduler;
 mod storage;

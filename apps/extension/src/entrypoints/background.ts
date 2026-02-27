@@ -4,6 +4,7 @@ import type { WsEvent } from '@/lib/api-client';
 import { settingsStorage, disabledSitesStorage } from '@/lib/storage';
 import { isDownloadableUrl, extractFilename } from '@/lib/utils';
 import type { ExtensionSettings } from '@/types';
+import type { MediaDownloadRequest, DetectedMedia } from '@/lib/media-types';
 
 export default defineBackground(() => {
   console.log('[DLMan] Background service worker started');
@@ -512,6 +513,8 @@ export default defineBackground(() => {
     url?: string;
     referrer?: string;
     links?: string[];
+    media?: DetectedMedia;
+    request?: MediaDownloadRequest;
   }
 
   browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
@@ -585,6 +588,61 @@ export default defineBackground(() => {
             }
           });
         }
+        return true;
+
+      // ==================================================================
+      // Media detection & download (from content script video detector)
+      // ==================================================================
+
+      case 'media-detected':
+        // Content script detected media on a page — log it
+        if (msg.media) {
+          console.log(
+            '[DLMan] Media detected:',
+            msg.media.protocol,
+            msg.media.master_url,
+            msg.media.variants?.length ?? 0,
+            'variants',
+          );
+        }
+        sendResponse({ success: true });
+        return true;
+
+      case 'media-download':
+        // Content script requests downloading detected media
+        (async () => {
+          if (!msg.request) {
+            sendResponse({ success: false, error: 'No download request provided' });
+            return;
+          }
+          try {
+            const client = getDlmanClient();
+            const isAvailable = await client.ping();
+            if (!isAvailable) {
+              // Fallback: for direct media, try opening as a regular download dialog
+              if (msg.request.media.protocol === 'direct') {
+                await handleDownload(
+                  msg.request.media.master_url,
+                  msg.request.media.referrer,
+                  msg.request.media.filename || undefined,
+                );
+                sendResponse({ success: true });
+              } else {
+                sendResponse({ success: false, error: 'DLMan is not running' });
+              }
+              return;
+            }
+
+            // Send media download request to desktop app
+            const result = await client.downloadMedia(msg.request);
+            sendResponse({
+              success: result.success,
+              error: result.error,
+            });
+          } catch (error) {
+            sendResponse({ success: false, error: (error as Error).message });
+          }
+        })();
         return true;
 
       default:

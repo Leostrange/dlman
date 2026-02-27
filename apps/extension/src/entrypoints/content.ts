@@ -1,4 +1,8 @@
 import { defineContentScript } from 'wxt/sandbox';
+import { VideoDetector } from '@/lib/video-detector';
+import { VideoOverlayManager } from '@/lib/video-overlay';
+import { resolveHlsVariants } from '@/lib/hls-parser';
+import type { DetectedMedia, MediaDownloadRequest } from '@/lib/media-types';
 
 /**
  * Content script for detecting downloadable links on web pages
@@ -385,5 +389,64 @@ export default defineContentScript({
 
     // Initialize
     setupLinkClickHandler();
+
+    // ========================================================================
+    // Video Detection & Overlay
+    // ========================================================================
+
+    const overlayManager = new VideoOverlayManager((request: MediaDownloadRequest) => {
+      // Send download request to background script
+      browser.runtime.sendMessage({
+        type: 'media-download',
+        request,
+      }).catch((err) => {
+        console.error('[DLMan] Failed to send media download request:', err);
+      });
+      // Show toast to confirm
+      showDlmanToast(1);
+    });
+
+    const detector = new VideoDetector({
+      onDetected: async (media: DetectedMedia) => {
+        console.log('[DLMan] Media detected:', media.protocol, media.master_url);
+
+        // For HLS streams, resolve quality variants before showing overlay
+        let variants = media.variants;
+        if (media.protocol === 'hls' && variants.length === 0) {
+          try {
+            variants = await resolveHlsVariants(
+              media.master_url,
+              media.cookies,
+              media.referrer,
+            );
+            media.variants = variants;
+          } catch (err) {
+            console.warn('[DLMan] Failed to resolve HLS variants:', err);
+          }
+        }
+
+        // Show download overlay on the video element
+        overlayManager.addOverlay(media, variants);
+
+        // Notify background script about detection
+        browser.runtime.sendMessage({
+          type: 'media-detected',
+          media,
+        }).catch(() => {
+          // Background not ready, that's OK
+        });
+      },
+      minDuration: 10,
+      interceptNetwork: true,
+      observeDOM: true,
+    });
+
+    detector.start();
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', () => {
+      detector.destroy();
+      overlayManager.destroy();
+    });
   },
 });
