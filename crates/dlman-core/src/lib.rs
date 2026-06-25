@@ -32,8 +32,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{broadcast, RwLock};
-use tracing::info;
+use tracing::{info, debug};
 use uuid::Uuid;
+
+/// User-Agent string used for all HTTP requests (shared constant).
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/// Check if a URL points to an HLS/DASH streaming manifest.
+pub fn is_streaming_url(url: &str) -> bool {
+    let path = url.split('?').next().unwrap_or(url).to_lowercase();
+    path.ends_with(".m3u8") || path.contains(".m3u8/")
+        || path.ends_with(".mpd") || path.contains(".mpd/")
+}
 
 /// Handle for an active HLS/DASH download task.
 /// Holds an abort handle so we can forcefully kill ALL in-flight HTTP requests.
@@ -79,9 +89,9 @@ impl DlmanCore {
         
         // Load settings from SQLite database (single source of truth)
         let settings = download_manager.db().load_settings().await?;
-        info!("Loaded settings from SQLite: default_segments={}", settings.default_segments);
+        debug!("Loaded settings: default_segments={}", settings.default_segments);
         
-        // Restore downloads from database
+        // Restore downloads from database (resets Downloading → Paused for crash recovery)
         let downloads = download_manager.restore_downloads().await?;
         info!("Restored {} downloads from database", downloads.len());
         
@@ -205,10 +215,11 @@ impl DlmanCore {
         }
     }
     
-    /// Add a new download
-    /// 
-    /// This is NON-BLOCKING - the download is immediately added to the queue
-    /// and returned. URL probing happens lazily when the download actually starts.
+    /// Add a new download.
+    ///
+    /// When `auto_start` is true the download begins immediately.
+    /// When false, it stays in `Queued` status until the user manually starts it.
+    /// Streaming URLs (m3u8/mpd) are transparently redirected to the HLS/DASH pipeline.
     pub async fn add_download(
         &self,
         url: &str,
@@ -216,76 +227,55 @@ impl DlmanCore {
         queue_id: Uuid,
         category_id: Option<Uuid>,
         cookies: Option<String>,
+        auto_start: bool,
     ) -> Result<Download, DlmanError> {
-        // Safety net: detect streaming URLs at the core level.
-        // If an m3u8/mpd URL reaches here (despite higher-level detection),
-        // redirect to the HLS/DASH pipeline instead of downloading as a file.
-        let url_path = url.split('?').next().unwrap_or(url).to_lowercase();
-        if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
-           url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
-            info!("[core::add_download] Intercepted streaming URL, redirecting to HLS pipeline: {}", url);
-            return self.download_hls_stream(url, None, None, None, cookies, None).await;
+        // Safety net: redirect streaming URLs to the HLS/DASH pipeline.
+        if is_streaming_url(url) {
+            info!("[add_download] Intercepted streaming URL → HLS pipeline");
+            return self.download_hls_stream(url, None, None, None, cookies, None, auto_start).await;
         }
 
         // Validate URL
         let parsed_url = url::Url::parse(url)
             .map_err(|_| DlmanError::InvalidUrl(url.to_string()))?;
-        
-        // Extract filename from URL without making network request
-        // The actual metadata (size, resumable) will be fetched when download starts
+
+        // Extract filename from URL path
         let filename = parsed_url.path_segments()
             .and_then(|s| s.last())
             .filter(|s| !s.is_empty())
             .unwrap_or("download")
             .to_string();
-        
-        // URL decode the filename
         let filename = urlencoding::decode(&filename)
             .map(|s| s.into_owned())
             .unwrap_or(filename);
-        
-        // Get unique filename to avoid overwriting existing files or conflicting with in-progress downloads
+
         let unique_filename = Self::get_unique_filename(&destination, &filename, self.download_manager.db()).await;
-        
-        // Create download - size and final_url will be set when download starts
+
         let mut download = Download::new(url.to_string(), destination, queue_id);
         download.category_id = category_id;
         download.filename = unique_filename;
-        download.size = None; // Will be set when download starts
-        download.final_url = None; // Will be set when download starts
+        download.size = None;
+        download.final_url = None;
         download.status = DownloadStatus::Queued;
         download.cookies = cookies;
-        
-        // Note: download.speed_limit stays None - the queue's speed_limit will be used at runtime
-        // This way if queue settings change, downloads will use the new limit
-        // User can explicitly set speed_limit on a download to override
-        
-        // Save to database
+
         self.download_manager.db().upsert_download(&download).await?;
-        
-        // Emit event immediately so UI updates
-        self.emit(CoreEvent::DownloadAdded {
-            download: download.clone(),
-        });
-        
-        // Start the download immediately (non-blocking)
-        // We directly resume the download rather than using try_start_next_download
-        // because the queue might not be "running"
-        let core_clone = self.clone();
-        let download_id = download.id;
-        tokio::spawn(async move {
-            if let Err(e) = core_clone.resume_download(download_id).await {
-                tracing::warn!("Failed to auto-start download: {}", e);
-            }
-        });
-        
+        self.emit(CoreEvent::DownloadAdded { download: download.clone() });
+
+        if auto_start {
+            let core = self.clone();
+            let id = download.id;
+            tokio::spawn(async move {
+                if let Err(e) = core.resume_download(id).await {
+                    tracing::warn!("Failed to auto-start download: {}", e);
+                }
+            });
+        }
+
         Ok(download)
     }
-    
-    /// Add a new download without auto-starting (queued status)
-    /// 
-    /// This adds the download to the queue but does NOT start it automatically.
-    /// The download will remain in "Queued" status until manually started.
+
+    /// Convenience alias — adds a download without starting it.
     pub async fn add_download_queued(
         &self,
         url: &str,
@@ -294,54 +284,7 @@ impl DlmanCore {
         category_id: Option<Uuid>,
         cookies: Option<String>,
     ) -> Result<Download, DlmanError> {
-        // Safety net: streaming URLs should never be queued as regular downloads
-        let url_path = url.split('?').next().unwrap_or(url).to_lowercase();
-        if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
-           url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
-            info!("[core::add_download_queued] Intercepted streaming URL, redirecting to HLS pipeline: {}", url);
-            return self.download_hls_stream(url, None, None, None, cookies, None).await;
-        }
-
-        // Validate URL
-        let parsed_url = url::Url::parse(url)
-            .map_err(|_| DlmanError::InvalidUrl(url.to_string()))?;
-        
-        // Extract filename from URL without making network request
-        let filename = parsed_url.path_segments()
-            .and_then(|s| s.last())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("download")
-            .to_string();
-        
-        // URL decode the filename
-        let filename = urlencoding::decode(&filename)
-            .map(|s| s.into_owned())
-            .unwrap_or(filename);
-        
-        // Get unique filename
-        let unique_filename = Self::get_unique_filename(&destination, &filename, self.download_manager.db()).await;
-        
-        // Create download with Queued status (not Pending)
-        let mut download = Download::new(url.to_string(), destination, queue_id);
-        download.category_id = category_id;
-        download.filename = unique_filename;
-        download.size = None;
-        download.final_url = None;
-        download.status = DownloadStatus::Queued; // Stay queued, don't auto-start
-        download.cookies = cookies;
-        
-        // Save to database
-        self.download_manager.db().upsert_download(&download).await?;
-        
-        // Emit event immediately so UI updates
-        self.emit(CoreEvent::DownloadAdded {
-            download: download.clone(),
-        });
-        
-        // NOTE: We do NOT spawn the try_start_next_download here
-        // The download stays in queue until user manually starts it
-        
-        Ok(download)
+        self.add_download(url, destination, queue_id, category_id, cookies, false).await
     }
     
     /// Get a download by ID
@@ -374,12 +317,8 @@ impl DlmanCore {
             return Ok(());
         }
         // Not an active HLS task — might be a paused HLS download or regular download.
-        // Check if it's a streaming URL that's already paused.
         if let Ok(dl) = self.get_download(id).await {
-            let url_lower = dl.url.split('?').next().unwrap_or(&dl.url).to_lowercase();
-            if url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8/")
-                || url_lower.ends_with(".mpd") || url_lower.contains(".mpd/")
-            {
+            if is_streaming_url(&dl.url) {
                 // Already paused or no active task — just ensure DB is Paused
                 self.download_manager.db().update_download_status(id, DownloadStatus::Paused, None).await?;
                 self.emit(CoreEvent::DownloadStatusChanged {
@@ -400,18 +339,13 @@ impl DlmanCore {
         let download = self.get_download(id).await?;
 
         // ── Streaming URL guard ─────────────────────────────────────────
-        let url_lower = download.url.split('?').next().unwrap_or(&download.url).to_lowercase();
-        if url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8/")
-           || url_lower.ends_with(".mpd") || url_lower.contains(".mpd/") {
-
-            // If there's already an active task for this download, skip
+        if is_streaming_url(&download.url) {
             if self.hls_tasks.read().await.contains_key(&id) {
-                info!("[resume_download] HLS download {} already has an active task, skipping", id);
+                debug!("[resume] HLS {} already active, skipping", id);
                 return Ok(());
             }
 
-            info!("[resume_download] Routing streaming URL to HLS/DASH pipeline: {}", &download.url);
-            // Re-download from scratch with fresh manifest URLs (HLS URLs expire!)
+            info!("[resume] Routing streaming download to HLS pipeline");
             let _dl = self.download_hls_stream_with_id(
                 Some(id),
                 &download.url,
@@ -420,6 +354,7 @@ impl DlmanCore {
                 None, // page_title lost on resume, but filename is already set
                 download.cookies.clone(),
                 None,
+                true, // auto_start: resume always starts immediately
             ).await?;
             return Ok(());
         }
@@ -427,44 +362,23 @@ impl DlmanCore {
         
         // Get queue for speed limit lookup
         let queue = self.queue_manager.get_queue(download.queue_id).await;
-        
-        info!(
-            "resume_download: id={}, download.speed_limit={:?}, queue.speed_limit={:?}",
-            id,
-            download.speed_limit,
-            queue.as_ref().and_then(|q| q.speed_limit)
-        );
-        
-        // Calculate effective speed limit: download override > queue limit > unlimited
-        let effective_speed_limit = if let Some(limit) = download.speed_limit {
-            Some(limit)
-        } else {
-            // Download has no override, check queue
-            queue.as_ref().and_then(|q| q.speed_limit)
-        };
-        
-        // Get segment count: existing segments > app settings (queue segment_count removed)
-        let settings_segment_count = self.settings.read().await.default_segments;
-        info!("resume_download: settings.default_segments={}", settings_segment_count);
-        
+        let effective_speed_limit = download.speed_limit
+            .or_else(|| queue.as_ref().and_then(|q| q.speed_limit));
+
+        let settings = self.settings.read().await;
         let segment_count = if !download.segments.is_empty() {
-            // Download already has segments, use existing count
-            info!("resume_download: using existing segment count from download");
             download.segments.len() as u32
         } else {
-            // Use app settings
-            info!("resume_download: using settings default_segments={}", settings_segment_count);
-            settings_segment_count
+            settings.default_segments
         };
-        
-        // Get retry settings from app settings
-        let settings = self.settings.read().await;
         let max_retries = settings.max_retries;
         let retry_delay_secs = settings.retry_delay_seconds;
         drop(settings);
-        
-        info!("resume_download: effective_speed_limit={:?}, segment_count={}, max_retries={}", 
-              effective_speed_limit, segment_count, max_retries);
+
+        debug!(
+            "[resume] id={} speed={:?} segments={} retries={}",
+            id, effective_speed_limit, segment_count, max_retries
+        );
         
         // Look up saved credentials for this URL
         let credentials = self.find_credentials_for_download(&download.url).await;
@@ -493,11 +407,7 @@ impl DlmanCore {
 
         // No active task — might be paused. Check if it's a streaming URL.
         if let Ok(dl) = self.get_download(id).await {
-            let url_lower = dl.url.split('?').next().unwrap_or(&dl.url).to_lowercase();
-            if url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8/")
-                || url_lower.ends_with(".mpd") || url_lower.contains(".mpd/")
-            {
-                info!("Cancelled paused HLS download {}", id);
+            if is_streaming_url(&dl.url) {
                 self.download_manager.db().update_download_status(id, DownloadStatus::Cancelled, None).await?;
                 self.emit(CoreEvent::DownloadStatusChanged {
                     id,
@@ -519,10 +429,8 @@ impl DlmanCore {
         let mut download = self.get_download(id).await?;
 
         // ── Streaming URL guard ─────────────────────────────────────────
-        let url_path = download.url.split('?').next().unwrap_or(&download.url).to_lowercase();
-        if url_path.ends_with(".m3u8") || url_path.contains(".m3u8/") ||
-           url_path.ends_with(".mpd") || url_path.contains(".mpd/") {
-            info!("[retry_download] Detected streaming URL, routing to HLS/DASH pipeline: {}", &download.url);
+        if is_streaming_url(&download.url) {
+            info!("[retry] Routing streaming download to HLS pipeline");
             let _dl = self.download_hls_stream_with_id(
                 Some(id),
                 &download.url,
@@ -531,6 +439,7 @@ impl DlmanCore {
                 None,
                 download.cookies.clone(),
                 None,
+                true, // auto_start: retries always start immediately
             ).await?;
             return Ok(());
         }
@@ -859,9 +768,9 @@ impl DlmanCore {
         self.settings.read().await.clone()
     }
     
-    /// Update settings (saves to SQLite - single source of truth)
+    /// Update settings (saves to SQLite)
     pub async fn update_settings(&self, settings: Settings) -> Result<(), DlmanError> {
-        info!("Updating settings in SQLite: default_segments={}", settings.default_segments);
+        debug!("Updating settings: default_segments={}", settings.default_segments);
         // Save to SQLite database (single source of truth)
         self.download_manager.db().save_settings(&settings).await?;
         // Update in-memory cache
@@ -875,8 +784,8 @@ impl DlmanCore {
 
     /// Download an HLS stream by fetching all segments and concatenating them.
     ///
-    /// Creates a NEW Download record and starts the segment pipeline.
-    /// For resuming an existing HLS download, use `download_hls_stream_with_id`.
+    /// When `auto_start` is true, downloading begins immediately.
+    /// When false, the record is created in `Queued` status and no segment work starts.
     pub async fn download_hls_stream(
         &self,
         master_url: &str,
@@ -885,15 +794,17 @@ impl DlmanCore {
         page_title: Option<String>,
         cookies: Option<String>,
         referrer: Option<String>,
+        auto_start: bool,
     ) -> Result<Download, DlmanError> {
-        self.download_hls_stream_with_id(None, master_url, variant_index, filename, page_title, cookies, referrer).await
+        self.download_hls_stream_with_id(None, master_url, variant_index, filename, page_title, cookies, referrer, auto_start).await
     }
 
     /// Core HLS/DASH download implementation.
     ///
     /// When `reuse_id` is `Some(uuid)`, the existing download record is reused
-    /// (for resume/retry) instead of creating a duplicate. When `None`, a new
-    /// record is created (fresh download from extension).
+    /// (for resume/retry). When `None`, a new record is created.
+    /// When `auto_start` is false, returns after creating the record with
+    /// `Queued` status — no segments are downloaded.
     async fn download_hls_stream_with_id(
         &self,
         reuse_id: Option<Uuid>,
@@ -903,6 +814,7 @@ impl DlmanCore {
         page_title: Option<String>,
         cookies: Option<String>,
         referrer: Option<String>,
+        auto_start: bool,
     ) -> Result<Download, DlmanError> {
         use crate::media::MediaResolver;
         use dlman_types::MediaProtocol;
@@ -927,13 +839,6 @@ impl DlmanCore {
             }
         });
 
-        info!("========================================");
-        info!("[HLS] Starting stream download");
-        info!("[HLS] URL: {}", master_url);
-        info!("[HLS] cookies={} referrer={} filename={:?} page_title={:?}",
-            cookies.is_some(), referrer.is_some(), filename, page_title);
-        info!("========================================");
-
         // 1. Build a DetectedMedia struct so the resolver can work
         let detected = dlman_types::DetectedMedia {
             id: Uuid::new_v4().to_string(),
@@ -952,7 +857,7 @@ impl DlmanCore {
 
         // 2. Resolve variants from the m3u8
         let http_client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .user_agent(USER_AGENT)
             .build()
             .unwrap_or_default();
         let resolver = MediaResolver::new(http_client.clone());
@@ -972,10 +877,9 @@ impl DlmanCore {
         };
 
         info!(
-            "[HLS] {} variants found. Chose: {} ({})",
+            "[HLS] {} variants, chose: {}",
             variants.len(),
             chosen.label,
-            chosen.url.chars().take(120).collect::<String>()
         );
 
         // 3. Get segment URLs for the chosen variant
@@ -987,10 +891,7 @@ impl DlmanCore {
             ));
         }
 
-        info!("[HLS] Media playlist has {} segments to download", segment_urls.len());
-        if let Some(first) = segment_urls.first() {
-            info!("[HLS] First segment: {}", first.chars().take(120).collect::<String>());
-        }
+        info!("[HLS] {} segments to download", segment_urls.len());
 
         // 4. Determine output filename — prefer provided filename > page_title > URL-derived
         // Build a quality suffix from the chosen variant label (e.g. " [720p]")
@@ -1056,6 +957,8 @@ impl DlmanCore {
         tokio::fs::create_dir_all(&destination).await?;
 
         // 6. Reuse existing download record, or create a new one
+        let initial_status = if auto_start { DownloadStatus::Downloading } else { DownloadStatus::Queued };
+
         let (download, unique_filename) = if let Some(existing_id) = reuse_id {
             // Resume/retry: reuse the existing download record
             match self.download_manager.db().load_download(existing_id).await {
@@ -1073,24 +976,23 @@ impl DlmanCore {
                         dl.filename = out_filename.clone();
                     }
                     let fname = dl.filename.clone();
-                    dl.status = DownloadStatus::Downloading;
+                    dl.status = initial_status;
                     dl.error = None;
                     dl.downloaded = 0;
                     self.download_manager.db().upsert_download(&dl).await?;
                     self.emit(CoreEvent::DownloadStatusChanged {
                         id: dl.id,
-                        status: DownloadStatus::Downloading,
+                        status: initial_status,
                         error: None,
                     });
                     (dl, fname)
                 }
                 _ => {
-                    // Existing record not found — fall through to create new
                     let unique_filename =
                         Self::get_unique_filename(&destination, &out_filename, self.download_manager.db()).await;
                     let mut download = Download::new(master_url.to_string(), destination.clone(), Uuid::nil());
                     download.filename = unique_filename.clone();
-                    download.status = DownloadStatus::Downloading;
+                    download.status = initial_status;
                     download.cookies = cookies.clone();
                     download.size = None;
                     download.downloaded = 0;
@@ -1098,7 +1000,7 @@ impl DlmanCore {
                     self.emit(CoreEvent::DownloadAdded { download: download.clone() });
                     self.emit(CoreEvent::DownloadStatusChanged {
                         id: download.id,
-                        status: DownloadStatus::Downloading,
+                        status: initial_status,
                         error: None,
                     });
                     (download, unique_filename.clone())
@@ -1110,7 +1012,7 @@ impl DlmanCore {
                 Self::get_unique_filename(&destination, &out_filename, self.download_manager.db()).await;
             let mut download = Download::new(master_url.to_string(), destination.clone(), Uuid::nil());
             download.filename = unique_filename.clone();
-            download.status = DownloadStatus::Downloading;
+            download.status = initial_status;
             download.cookies = cookies.clone();
             download.size = None;
             download.downloaded = 0;
@@ -1118,11 +1020,16 @@ impl DlmanCore {
             self.emit(CoreEvent::DownloadAdded { download: download.clone() });
             self.emit(CoreEvent::DownloadStatusChanged {
                 id: download.id,
-                status: DownloadStatus::Downloading,
+                status: initial_status,
                 error: None,
             });
             (download, unique_filename.clone())
         };
+
+        // If user chose "Download Later", record is saved. Don't start segment work.
+        if !auto_start {
+            return Ok(download);
+        }
 
         let download_id = download.id;
         let out_path = destination.join(&unique_filename);
@@ -1567,20 +1474,6 @@ impl DlmanCore {
         }
         
         Ok(())
-    }
-}
-
-// Compatibility shim for old API (moved outside impl block)
-pub mod compat {
-    use super::*;
-    use std::collections::HashMap;
-    
-    /// Compatibility shim for old API
-    pub async fn get_downloads_map(core: &DlmanCore) -> HashMap<Uuid, Download> {
-        match core.get_all_downloads().await {
-            Ok(downloads) => downloads.into_iter().map(|d| (d.id, d)).collect(),
-            Err(_) => HashMap::new(),
-        }
     }
 }
 

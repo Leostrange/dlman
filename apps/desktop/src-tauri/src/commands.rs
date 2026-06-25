@@ -43,22 +43,21 @@ pub async fn add_download(
     start_later: Option<bool>,
     cookies: Option<String>,
 ) -> Result<Download, String> {
-    tracing::info!("[add_download] URL={} cookies={}", &url, cookies.is_some());
+    tracing::info!("[add_download] URL={} start_later={:?}", &url, start_later);
     // Auto-detect HLS/DASH streaming URLs and route to the streaming pipeline.
-    // This ensures m3u8/mpd URLs work regardless of how they arrive (extension,
-    // manual paste, context menu, etc.).
-    if let Some(protocol) = is_streaming_url(&url) {
-        tracing::info!("[add_download] Detected streaming URL ({}), routing to HLS pipeline", protocol);
+    if let Some(_protocol) = is_streaming_url(&url) {
         let filename = probed_info.as_ref().and_then(|p| p.filename.clone());
+        let auto_start = !start_later.unwrap_or(false);
         return state
             .with_core_async(|core| async move {
                 core.download_hls_stream(
                     &url,
-                    None,    // variant_index — let it pick best
+                    None,
                     filename,
-                    None,    // page_title — not available in this path
+                    None,
                     cookies.clone(),
-                    None,    // referrer
+                    None,
+                    auto_start,
                 )
                 .await
             })
@@ -68,15 +67,11 @@ pub async fn add_download(
     let queue_uuid = Uuid::parse_str(&queue_id).map_err(|e| e.to_string())?;
     let category_uuid = category_id.map(|s| Uuid::parse_str(&s).map_err(|e| e.to_string())).transpose()?;
     let dest_path = PathBuf::from(destination);
-    let should_start_later = start_later.unwrap_or(false);
+    let auto_start = !start_later.unwrap_or(false);
 
     state
         .with_core_async(|core| async move { 
-            let mut download = if should_start_later {
-                core.add_download_queued(&url, dest_path, queue_uuid, category_uuid, cookies.clone()).await?
-            } else {
-                core.add_download(&url, dest_path, queue_uuid, category_uuid, cookies.clone()).await?
-            };
+            let mut download = core.add_download(&url, dest_path, queue_uuid, category_uuid, cookies.clone(), auto_start).await?;
             
             // Apply probed info if provided (filename, size from dialog probe)
             if let Some(info) = probed_info {
@@ -135,12 +130,7 @@ pub async fn add_downloads_batch(
             let mut results = Vec::with_capacity(downloads.len());
             
             for req in downloads {
-                // Use add_download (auto-start) or add_download_queued based on start_immediately flag
-                let add_result = if should_start {
-                    core.add_download(&req.url, dest_path.clone(), queue_uuid, category_uuid, None).await
-                } else {
-                    core.add_download_queued(&req.url, dest_path.clone(), queue_uuid, category_uuid, None).await
-                };
+                let add_result = core.add_download(&req.url, dest_path.clone(), queue_uuid, category_uuid, None, should_start).await;
                 
                 match add_result {
                     Ok(mut download) => {
@@ -228,15 +218,16 @@ pub async fn start_media_download(
     page_title: Option<String>,
     cookies: Option<String>,
     referrer: Option<String>,
+    start_later: Option<bool>,
 ) -> Result<dlman_types::Download, String> {
     tracing::info!(
-        "[start_media_download] protocol={} variant={:?} cookies={} referrer={} url={}",
-        protocol, variant_index, cookies.is_some(), referrer.is_some(),
-        &master_url.chars().take(100).collect::<String>()
+        "[start_media_download] protocol={} variant={:?} start_later={:?}",
+        protocol, variant_index, start_later,
     );
     if protocol != "hls" && protocol != "dash" {
         return Err(format!("Unsupported media protocol: {}", protocol));
     }
+    let auto_start = !start_later.unwrap_or(false);
     state
         .with_core_async(|core| async move {
             core.download_hls_stream(
@@ -246,6 +237,7 @@ pub async fn start_media_download(
                 page_title,
                 cookies,
                 referrer,
+                auto_start,
             )
             .await
         })

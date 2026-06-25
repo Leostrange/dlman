@@ -392,6 +392,7 @@ export function NewDownloadDialog() {
             page_title: mediaMeta.page_title || null,
             cookies: browserCookies || null,
             referrer: mediaMeta.referrer || (url !== mediaMeta.master_url ? url : null),
+            start_later: startLater,
           });
         } else {
           // Regular download — standard flow
@@ -762,7 +763,7 @@ export function NewDownloadDialog() {
           <Button
             variant="secondary"
             onClick={() => handleAddDownload(true)}
-            disabled={!url || !destination || isProbing || !!probeError || isAdding}
+            disabled={!url || !destination || isAdding}
             title="Add to queue without starting"
           >
             <Clock className="mr-2 h-4 w-4" />
@@ -770,7 +771,7 @@ export function NewDownloadDialog() {
           </Button>
           <Button
             onClick={() => handleAddDownload(false)}
-            disabled={!url || !destination || isProbing || !!probeError || isAdding}
+            disabled={!url || !destination || isAdding}
           >
             {isAdding ? (
               <>

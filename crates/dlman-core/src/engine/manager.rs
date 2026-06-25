@@ -45,7 +45,7 @@ struct DownloadTaskHandle {
 /// Build an HTTP client with optional proxy settings
 pub fn build_http_client(proxy_settings: Option<&ProxySettings>) -> Result<Client, DlmanError> {
     let mut builder = Client::builder()
-        .user_agent("DLMan/2.0.0")
+        .user_agent(crate::USER_AGENT)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(120));
     
@@ -618,7 +618,7 @@ impl DownloadManager {
             .collect();
         
         for download in &downloading {
-            info!("Auto-resuming download: {}", download.filename);
+            tracing::debug!("Resetting stale Downloading → Paused: {}", download.filename);
             // Set to paused first so resume logic works
             self.db.update_download_status(download.id, DownloadStatus::Paused, None).await?;
         }
