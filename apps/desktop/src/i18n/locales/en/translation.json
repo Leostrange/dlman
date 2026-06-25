@@ -8,6 +8,7 @@
   },
   "common": {
     "add": "Add",
+    "apply": "Apply",
     "cancel": "Cancel",
     "clear": "Clear",
     "pause": "Pause",
@@ -17,6 +18,11 @@
     "searchPlaceholder": "Search...",
     "start": "Start",
     "stop": "Stop"
+  },
+  "contextMenu": {
+    "batchImport": "Batch Import",
+    "newQueue": "New Queue",
+    "pasteLinks": "Paste Links"
   },
   "devConsole": {
     "collapse": "Collapse console",
@@ -35,6 +41,29 @@
     "title": "Dev Console",
     "warningsBadge": "{{n}} warning(s)",
     "warns": "Warns"
+  },
+  "downloadItem": {
+    "complete": "Complete",
+    "copyUrl": "Copy URL",
+    "createdLabel": "Created:",
+    "deselect": "Deselect",
+    "moved": "MOVED",
+    "openFile": "Open File",
+    "queueLabel": "Queue:",
+    "redownload": "Re-download",
+    "remaining": "{{time}} remaining",
+    "retryDownload": "Retry Download",
+    "segments": "Download Segments",
+    "segmentTitle": "Segment {{n}}: {{detail}}",
+    "segShort": "Seg {{n}}:",
+    "select": "Select",
+    "showInfo": "Show Info",
+    "speedLimit": "Speed Limit",
+    "startNow": "Start Now",
+    "stopDownload": "Stop Download",
+    "streaming": "{{size}} (streaming)",
+    "unknown": "Unknown",
+    "unlimited": "Unlimited"
   },
   "downloads": {
     "empty": {
@@ -131,7 +160,14 @@
     "status": "Status"
   },
   "status": {
-    "paused": "Paused"
+    "cancelled": "Cancelled",
+    "completed": "Completed",
+    "deleted": "Deleted",
+    "downloading": "Downloading",
+    "failed": "Failed",
+    "paused": "Paused",
+    "pending": "Pending",
+    "queued": "Queued"
   },
   "toasts": {
     "allDataCleared": "All data cleared. Refreshing...",
@@ -141,31 +177,46 @@
     "clearedCompleted": "Cleared {{n}} completed download(s)",
     "clearedFailed": "Cleared {{n}} failed download(s)",
     "clipboardReadFailed": "Failed to read clipboard",
+    "copyUrlFailed": "Failed to copy URL",
     "dataExported": "Data exported successfully",
     "devtoolsBrowserHint": "Press F12 to open DevTools in browser",
     "devtoolsUnavailable": "DevTools not available in this build",
     "downloadCancelled": "Download cancelled",
     "downloadPaused": "Download paused",
+    "downloadRemoved": "Download removed",
+    "downloadRemovedWithFile": "Download removed and file deleted",
+    "downloadRestarted": "Download restarted",
     "downloadResumed": "Download resumed",
     "exportDesktopOnly": "Export is only available in the desktop app",
     "exportFailed": "Failed to export data",
+    "fileDropped": "File dropped successfully",
+    "fileNotAvailable": "File not available",
     "importDesktopOnly": "Import is only available in the desktop app",
     "imported": "Imported {{n}} download(s)",
     "importFailed": "Failed to import data",
     "invalidExportFormat": "Invalid export file format",
+    "movedToQueue": "Moved to queue",
     "movedToQueueN": "Moved {{n}} download(s) to queue",
     "noUrlsInClipboard": "No valid URLs found in clipboard",
+    "openFileFailed": "Failed to open file",
     "openFolderDesktopOnly": "Open folder is only available in the desktop app",
     "openFolderFailed": "Failed to open folder",
     "pausedN": "Paused {{n}} download(s)",
     "pauseFailed": "Failed to pause download",
+    "queuedForRetry": "Download queued for retry",
     "queueStarted": "Started queue \"{{name}}\"",
     "queueStartFailed": "Failed to start queue",
     "queueStopFailed": "Failed to stop queue",
     "queueStopped": "Stopped queue \"{{name}}\"",
+    "removeFailed": "Failed to remove download",
+    "restartFailed": "Failed to restart download",
     "resumedN": "Resumed {{n}} download(s)",
     "resumeFailed": "Failed to resume download",
-    "stoppedN": "Stopped {{n}} download(s)"
+    "speedLimitDisabled": "Speed limit disabled",
+    "speedLimitSet": "Speed limit set to {{n}} KB/s",
+    "stoppedN": "Stopped {{n}} download(s)",
+    "urlCopied": "URL copied to clipboard",
+    "usingQueueSpeedLimit": "Using queue speed limit"
   },
   "toolbar": {
     "moveToQueue": "Move to Queue",
