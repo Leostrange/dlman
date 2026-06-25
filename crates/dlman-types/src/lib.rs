@@ -305,6 +305,18 @@ pub struct Settings {
     /// Proxy configuration
     #[serde(default)]
     pub proxy: ProxySettings,
+    /// UI display language as a BCP-47 code (e.g. "en", "fa"). Desktop UI only;
+    /// the CLI ignores it. Defaults to English.
+    #[serde(default = "default_language")]
+    pub language: String,
+    /// UI font override key (see the desktop font registry). `None` means the
+    /// font follows the active language's recommended default.
+    #[serde(default)]
+    pub font: Option<String>,
+}
+
+fn default_language() -> String {
+    "en".to_string()
 }
 
 /// Proxy configuration
@@ -347,6 +359,8 @@ impl Default for Settings {
             max_retries: 5,
             retry_delay_seconds: 30,
             proxy: ProxySettings::default(),
+            language: default_language(),
+            font: None,
         }
     }
 }

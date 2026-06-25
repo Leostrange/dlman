@@ -29,6 +29,8 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Languages,
+  Type,
 } from 'lucide-react';
 
 import {
@@ -60,6 +62,12 @@ import { useCredentialsStore } from '@/stores/credentials';
 import { getIconComponent } from '@/lib/categoryIcons';
 import { CategoryDialog } from './CategoryDialog';
 import type { Settings as SettingsType, Theme, ProxySettings, SiteCredential } from '@/types';
+import { useTranslation } from 'react-i18next';
+import { LOCALES } from '@/i18n/config';
+import { FONTS } from '@/i18n/fonts';
+
+// Sentinel Select value meaning "no explicit font override — follow the language".
+const FONT_AUTO = 'auto';
 
 type SettingsTab = 'downloads' | 'categories' | 'notifications' | 'appearance' | 'extensions' | 'proxy' | 'saved-logins' | 'advanced';
 
@@ -77,6 +85,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 export function SettingsDialog() {
   const { showSettingsDialog, setShowSettingsDialog, consoleLogLimits, setConsoleLogLimits } = useUIStore();
   const { settings, updateSettings, setTheme } = useSettingsStore();
+  const { t } = useTranslation();
   const { categories, updateCategory, removeCategory } = useCategoryStore();
   const { credentials, loadFromBackend: loadCredentials, addCredential, updateCredential, deleteCredential } = useCredentialsStore();
 
@@ -459,6 +468,69 @@ export function SettingsDialog() {
                       <span className="text-sm capitalize">{theme}</span>
                     </button>
                   ))}
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Language & Font */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                <Languages className="h-4 w-4" />
+                {t('settings.language')}
+              </h3>
+              <div className="pl-6 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="language">{t('settings.language')}</Label>
+                  <Select
+                    value={localSettings.language || 'en'}
+                    onValueChange={(code) => {
+                      handleChange('language', code);
+                      updateSettings({ language: code }); // apply immediately
+                    }}
+                  >
+                    <SelectTrigger id="language">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LOCALES.map((l) => (
+                        <SelectItem key={l.code} value={l.code}>
+                          {l.nativeName}
+                          {l.name !== l.nativeName ? ` (${l.name})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t('settings.languageHint')}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="font" className="flex items-center gap-2">
+                    <Type className="h-3.5 w-3.5" />
+                    {t('settings.font')}
+                  </Label>
+                  <Select
+                    value={localSettings.font ?? FONT_AUTO}
+                    onValueChange={(value) => {
+                      const font = value === FONT_AUTO ? null : value;
+                      handleChange('font', font);
+                      updateSettings({ font }); // apply immediately
+                    }}
+                  >
+                    <SelectTrigger id="font">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FONT_AUTO}>{t('settings.fontAuto')}</SelectItem>
+                      {FONTS.map((f) => (
+                        <SelectItem key={f.key} value={f.key} style={{ fontFamily: f.stack }}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t('settings.fontHint')}</p>
                 </div>
               </div>
             </div>

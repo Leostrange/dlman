@@ -25,6 +25,7 @@ import { loadCredentialsFromBackend } from "@/stores/credentials";
 import { setupEventListeners, setPendingClipboardUrls, setPendingDropUrls } from "@/lib/events";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useUpdateCheck } from "@/hooks/useUpdateCheck";
+import { useApplyLocale } from "@/i18n/useApplyLocale";
 import { parseUrls } from "@/lib/utils";
 import { initSystemIntegrations } from "@/lib/system-tray";
 import { initNotifications } from "@/lib/notifications";
@@ -97,6 +98,9 @@ function AppContent() {
     }
     return "light";
   }, [theme]);
+
+  // Apply the persisted language, text direction, and font (and react to changes)
+  useApplyLocale();
 
   // Enable keyboard shortcuts
   useKeyboardShortcuts();
