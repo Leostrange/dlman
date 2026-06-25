@@ -445,7 +445,7 @@ export function SettingsDialog() {
             <div className="space-y-4">
               <h3 className="text-sm font-medium flex items-center gap-2">
                 <Palette className="h-4 w-4" />
-                Theme
+                {t('settings.theme')}
               </h3>
               <div className="pl-6">
                 <div className="grid grid-cols-3 gap-3">
@@ -465,7 +465,13 @@ export function SettingsDialog() {
                       {theme === 'light' && <Sun className="h-6 w-6" />}
                       {theme === 'dark' && <Moon className="h-6 w-6" />}
                       {theme === 'system' && <Monitor className="h-6 w-6" />}
-                      <span className="text-sm capitalize">{theme}</span>
+                      <span className="text-sm">
+                        {theme === 'light'
+                          ? t('settings.themeLight')
+                          : theme === 'dark'
+                            ? t('settings.themeDark')
+                            : t('settings.themeSystem')}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -540,16 +546,16 @@ export function SettingsDialog() {
             <div className="space-y-4">
               <h3 className="text-sm font-medium flex items-center gap-2">
                 <Monitor className="h-4 w-4" />
-                System
+                {t('settings.system')}
               </h3>
               <div className="pl-6 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="minimizeToTray" className="cursor-pointer">
-                      Minimize to system tray
+                      {t('settings.minimizeToTray.label')}
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Keep DLMan running in the background when closed
+                      {t('settings.minimizeToTray.hint')}
                     </p>
                   </div>
                   <Switch

@@ -1,33 +1,39 @@
 {
-  "common": {
-    "add": "Add",
-    "cancel": "Cancel",
-    "save": "Save",
-    "delete": "Delete",
-    "remove": "Remove",
-    "close": "Close",
-    "confirm": "Confirm",
-    "edit": "Edit",
-    "retry": "Retry",
-    "pause": "Pause",
-    "resume": "Resume",
-    "start": "Start",
-    "stop": "Stop",
-    "open": "Open",
-    "loading": "Loading…",
-    "search": "Search"
+  "downloads": {
+    "empty": {
+      "noMatch": {
+        "hint": "Try changing the filter or search query",
+        "title": "No downloads match your filter"
+      }
+    }
   },
   "settings": {
-    "title": "Settings",
-    "appearance": "Appearance",
-    "theme": "Theme",
-    "themeSystem": "System",
-    "themeLight": "Light",
-    "themeDark": "Dark",
-    "language": "Language",
-    "languageHint": "Choose the display language for the app.",
     "font": "Font",
     "fontAuto": "Auto (follows language)",
-    "fontHint": "The app font. Defaults to the recommended font for your language."
+    "fontHint": "The app font. Defaults to the recommended font for your language.",
+    "language": "Language",
+    "languageHint": "Choose the display language for the app.",
+    "minimizeToTray": {
+      "hint": "Keep DLMan running in the background when closed",
+      "label": "Minimize to system tray"
+    },
+    "system": "System",
+    "theme": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeSystem": "System"
+  },
+  "toasts": {
+    "bulkRemoved_one": "Removed {{count}} download",
+    "bulkRemoved_other": "Removed {{count}} downloads",
+    "bulkRemovedWithFiles_one": "Removed {{count}} download, deleted {{files}} file(s)",
+    "bulkRemovedWithFiles_other": "Removed {{count}} downloads, deleted {{files}} file(s)"
+  },
+  "welcome": {
+    "addDownload": "Add Download",
+    "importLinks": "Import Links",
+    "subtitle": "Fast, modern download manager with multi-segment acceleration",
+    "tip": "Tip: Paste links with Ctrl+V or drag & drop URLs anywhere",
+    "title": "Welcome to DLMan"
   }
 }

@@ -1,33 +1,39 @@
 {
-  "common": {
-    "add": "افزودن",
-    "cancel": "انصراف",
-    "save": "ذخیره",
-    "delete": "حذف",
-    "remove": "برداشتن",
-    "close": "بستن",
-    "confirm": "تأیید",
-    "edit": "ویرایش",
-    "retry": "تلاش مجدد",
-    "pause": "توقف",
-    "resume": "ادامه",
-    "start": "شروع",
-    "stop": "توقف",
-    "open": "باز کردن",
-    "loading": "در حال بارگذاری…",
-    "search": "جستجو"
+  "downloads": {
+    "empty": {
+      "noMatch": {
+        "hint": "فیلتر یا عبارت جستجو را تغییر دهید",
+        "title": "هیچ دانلودی با فیلتر شما مطابقت ندارد"
+      }
+    }
   },
   "settings": {
-    "title": "تنظیمات",
-    "appearance": "ظاهر",
-    "theme": "پوسته",
-    "themeSystem": "سیستم",
-    "themeLight": "روشن",
-    "themeDark": "تیره",
-    "language": "زبان",
-    "languageHint": "زبان نمایش برنامه را انتخاب کنید.",
     "font": "فونت",
     "fontAuto": "خودکار (بر اساس زبان)",
-    "fontHint": "فونت برنامه. به‌صورت پیش‌فرض از فونت پیشنهادی زبان شما استفاده می‌شود."
+    "fontHint": "فونت برنامه. به\u200cصورت پیش\u200cفرض از فونت پیشنهادی زبان شما استفاده می\u200cشود.",
+    "language": "زبان",
+    "languageHint": "زبان نمایش برنامه را انتخاب کنید.",
+    "minimizeToTray": {
+      "hint": "هنگام بستن، DLMan در پس\u200cزمینه اجرا بماند",
+      "label": "کوچک\u200cسازی به سینی سیستم"
+    },
+    "system": "سیستم",
+    "theme": "پوسته",
+    "themeDark": "تیره",
+    "themeLight": "روشن",
+    "themeSystem": "سیستم"
+  },
+  "toasts": {
+    "bulkRemoved_one": "{{count}} دانلود حذف شد",
+    "bulkRemoved_other": "{{count}} دانلود حذف شد",
+    "bulkRemovedWithFiles_one": "{{count}} دانلود حذف شد، {{files}} فایل پاک شد",
+    "bulkRemovedWithFiles_other": "{{count}} دانلود حذف شد، {{files}} فایل پاک شد"
+  },
+  "welcome": {
+    "addDownload": "افزودن دانلود",
+    "importLinks": "وارد کردن لینک\u200cها",
+    "subtitle": "مدیر دانلود سریع و مدرن با شتاب\u200cدهی چندبخشی",
+    "tip": "نکته: لینک\u200cها را با Ctrl+V بچسبانید یا آدرس\u200cها را هرجا رها کنید",
+    "title": "به DLMan خوش آمدید"
   }
 }
