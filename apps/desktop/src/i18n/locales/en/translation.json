@@ -106,7 +106,8 @@
     "save": "Save",
     "searchPlaceholder": "Search...",
     "start": "Start",
-    "stop": "Stop"
+    "stop": "Stop",
+    "update": "Update"
   },
   "contextMenu": {
     "batchImport": "Batch Import",
@@ -337,21 +338,163 @@
     "timeUntilStart": "Time until scheduled start"
   },
   "settings": {
+    "addLogin": "Add Login",
+    "addNewLogin": "Add New Login",
+    "autoCheckUpdates": {
+      "hint": "Check for new versions on startup",
+      "label": "Check for updates automatically"
+    },
+    "browserExtensions": "Browser Extensions",
+    "browserExtensionsDesc": "Install the DLMan browser extension to capture downloads directly from your browser.",
+    "bypassProxy": "Bypass Proxy For",
+    "bypassProxyHint": "Comma-separated list of hosts to bypass the proxy",
+    "bypassProxyPlaceholder": "localhost, 127.0.0.1, .local",
+    "categoriesDesc": "Manage categories for organizing your downloads. Each category can have custom file extensions and download paths.",
+    "categoriesTitle": "File Categories",
+    "categoryDownloadPath": "Download path",
+    "categoryPathPlaceholder": "Uses default download location",
+    "chromeDesc": "Chromium-based browsers",
+    "chromeTitle": "Chrome / Edge / Brave",
+    "consoleLogLimits": "Console Log Limits (per type)",
+    "consoleLogLimitsHint": "Limits how many logs of each type are kept in memory.",
+    "defaultLocation": "Default Location",
+    "defaultPathPlaceholder": "/path/to/downloads",
+    "defaultSegments": "Default segments per download",
+    "deleteCategory": "Delete category",
+    "deleteCategoryConfirm": "Delete category \"{{name}}\"?",
+    "developerOptions": "Developer Options",
+    "devMode": {
+      "hint": "Shows the dev console and enables additional debugging features.",
+      "label": "Enable developer mode"
+    },
+    "disabled": "Disabled",
+    "domain": "Domain",
+    "domainPlaceholder": "example.com or *.example.com",
+    "download": "Download",
+    "editCategory": "Edit category",
+    "editLogin": "Edit Login",
+    "enabled": "Enabled",
+    "firefoxDesc": "Mozilla Firefox",
+    "firefoxTitle": "Firefox",
     "font": "Font",
     "fontAuto": "Auto (follows language)",
     "fontHint": "The app font. Defaults to the recommended font for your language.",
+    "httpProxy": "HTTP Proxy",
+    "httpProxyHint": "Proxy server for HTTP connections",
+    "httpsProxy": "HTTPS Proxy",
+    "httpsProxyHint": "Proxy server for HTTPS connections (usually the same as HTTP)",
+    "inAppToasts": "In-App Toasts",
+    "inAppToastsDesc": "Control which toast messages appear in the app",
+    "integrationPort": "Integration port",
+    "integrationPortDefault": "(default: 7899)",
+    "integrationPortHint": "Browser extensions connect to this port. Change only if there's a conflict.",
+    "integrationSettings": "Integration Settings",
     "language": "Language",
     "languageHint": "Choose the display language for the app.",
+    "lastUsed": "Last used: {{date}}",
+    "logDebug": "Debug",
+    "logError": "Error",
+    "logInfo": "Info",
+    "logWarn": "Warn",
+    "maxConcurrent": "Maximum concurrent downloads",
+    "maxRetries": "Maximum retry attempts",
+    "maxRetriesHint": "Number of times to automatically retry a failed download. Set to 0 to disable automatic retries.",
     "minimizeToTray": {
       "hint": "Keep DLMan running in the background when closed",
       "label": "Minimize to system tray"
     },
+    "newCategory": "New Category",
+    "noCategoriesHint": "Click \"New Category\" to create one",
+    "noCategoriesTitle": "No categories defined",
+    "noExtensions": "No extensions defined",
+    "noLoginsHint": "Add credentials for subscription-based download sites",
+    "noLoginsTitle": "No saved logins yet",
+    "notesOptional": "Notes (optional)",
+    "notesPlaceholder": "e.g., Premium subscription account",
+    "notificationSettings": "Notification Settings",
+    "notifyComplete": {
+      "hint": "Show notification when a download finishes",
+      "label": "Download complete"
+    },
+    "notifyFailed": {
+      "hint": "Show notification when a download fails",
+      "label": "Download failed"
+    },
+    "notifySound": {
+      "hint": "Play a sound for notifications",
+      "label": "Play sound"
+    },
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "performance": "Performance",
+    "protocol": "Protocol",
+    "proxyAuth": "Proxy Authentication (Optional)",
+    "proxyConfigDesc": "Configure how DLMan connects to the internet. Choose between system proxy, manual configuration, or direct connection.",
+    "proxyConfiguration": "Proxy Configuration",
+    "proxyExamplePlaceholder": "http://proxy.example.com:8080",
+    "proxyManual": {
+      "desc": "Specify proxy servers manually",
+      "label": "Manual Configuration"
+    },
+    "proxyMode": "Proxy Mode",
+    "proxyNone": {
+      "desc": "Connect directly without any proxy",
+      "label": "No Proxy"
+    },
+    "proxySystem": {
+      "desc": "Use your operating system's proxy settings",
+      "label": "Use System Proxy"
+    },
+    "rememberLastPath": "Remember last used path",
+    "resetToDefault": "Reset to default",
+    "retryDelay": "Retry delay (seconds)",
+    "retryDelayHint": "Time to wait between retry attempts. Default: 30 seconds.",
+    "retrySettings": "Retry Settings",
+    "saveChanges": "Save Changes",
+    "savedLoginsDesc": "Save credentials for subscription-based websites. Matching credentials are automatically applied when downloading from these domains.",
+    "savedLoginsTitle": "Saved Logins",
+    "saving": "Saving...",
+    "selectCategoryPathTitle": "Select Download Path for Category",
+    "selectDefaultLocationTitle": "Select Default Download Location",
+    "speedLimitCurrent": "Set to 0 for unlimited speed. Current: {{current}}",
+    "speedLimitLabel": "Global speed limit (KB/s, 0 for unlimited)",
+    "speedLimitUnit": "KB/s",
+    "startOnBoot": {
+      "hint": "Automatically launch DLMan when you log in",
+      "label": "Start on system boot"
+    },
+    "subtitle": "Configure DLMan to work the way you want.",
     "system": "System",
+    "tabs": {
+      "advanced": "Advanced",
+      "appearance": "Appearance",
+      "categories": "Categories",
+      "downloads": "Downloads",
+      "extensions": "Extensions",
+      "notifications": "Notifications",
+      "proxy": "Proxy",
+      "savedLogins": "Saved Logins"
+    },
     "theme": "Theme",
     "themeDark": "Dark",
     "themeLight": "Light",
     "themeSystem": "System",
-    "title": "Settings"
+    "title": "Settings",
+    "toastError": {
+      "hint": "Show toasts for errors and failures",
+      "label": "Show error messages"
+    },
+    "toastInfo": {
+      "hint": "Show informational toasts",
+      "label": "Show info messages"
+    },
+    "toastSuccess": {
+      "hint": "Show toasts for successful actions",
+      "label": "Show success messages"
+    },
+    "updates": "Updates",
+    "username": "Username",
+    "usernamePlaceholder": "Username"
   },
   "sidebar": {
     "active": "Active",
