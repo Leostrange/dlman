@@ -802,7 +802,7 @@ export function DownloadItem({ download, isFocused = false }: DownloadItemProps)
                           className="h-8 text-sm"
                           min={0}
                         />
-                        <span className="text-xs text-muted-foreground">KB/s</span>
+                        <span className="text-xs text-muted-foreground">{t('settings.speedLimitUnit')}</span>
                         <Button
                           size="sm"
                           variant="secondary"

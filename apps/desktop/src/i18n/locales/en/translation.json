@@ -115,6 +115,7 @@
     "apply": "Apply",
     "cancel": "Cancel",
     "clear": "Clear",
+    "close": "Close",
     "confirm": "Confirm",
     "delete": "Delete",
     "edit": "Edit",
@@ -175,6 +176,10 @@
     "title": "Dev Console",
     "warningsBadge": "{{n}} warning(s)",
     "warns": "Warns"
+  },
+  "dnd": {
+    "download": "Download",
+    "items": "Items"
   },
   "downloadInfo": {
     "calculating": "Calculating...",
@@ -574,6 +579,8 @@
     "addedDownloads": "Added {{n}} downloads",
     "addedToQueue": "Added {{n}} downloads to queue",
     "allDataCleared": "All data cleared. Refreshing...",
+    "authRequiredDesc": "Please provide credentials to continue downloading.",
+    "authRequiredFor": "Authentication required for {{domain}}",
     "browseDesktopOnly": "Browse is only available in the desktop app",
     "bulkRemoved": "Removed {{n}} download(s)",
     "bulkRemovedWithFiles": "Removed {{n}} download(s), deleted {{files}} file(s)",
@@ -590,6 +597,8 @@
     "dirPickerFailed": "Failed to open directory picker",
     "downloadAddedToQueue": "Download added to queue",
     "downloadCancelled": "Download cancelled",
+    "downloadCompletedNamed": "Download completed: {{filename}}",
+    "downloadFailedNamed": "Download failed: {{filename}}",
     "downloadPaused": "Download paused",
     "downloadRemoved": "Download removed",
     "downloadRemovedWithFile": "Download removed and file deleted",
@@ -597,6 +606,9 @@
     "downloadResumed": "Download resumed",
     "downloadStarting": "Download starting...",
     "enterUrlAndDest": "Please enter a URL and destination",
+    "executeActionFailed": "Failed to execute {{action}}: {{error}}",
+    "executedCommand": "Executed command for queue \"{{name}}\"",
+    "executingAction": "Executing {{action}}...",
     "exportDesktopOnly": "Export is only available in the desktop app",
     "exportFailed": "Failed to export data",
     "fileDropped": "File dropped successfully",
@@ -606,8 +618,10 @@
     "imported": "Imported {{n}} download(s)",
     "importFailed": "Failed to import data",
     "invalidExportFormat": "Invalid export file format",
+    "movedToCategoryN": "Moved {{n}} download(s) to {{category}} category",
     "movedToQueue": "Moved to queue",
     "movedToQueueN": "Moved {{n}} download(s) to queue",
+    "moveToCategoryFailed": "Failed to move item to category",
     "nothingSelected": "Nothing selected",
     "noUrlsFound": "No URLs found",
     "noUrlsInClipboard": "No valid URLs found in clipboard",
@@ -630,6 +644,7 @@
     "stoppedN": "Stopped {{n}} download(s)",
     "toggledDevtools": "Toggled DevTools",
     "toggleDevtoolsFailed": "Failed to toggle DevTools",
+    "unknownFile": "Unknown file",
     "updateDestinationFailed": "Failed to update destination: {{error}}",
     "urlCopied": "URL copied to clipboard",
     "usingQueueSpeedLimit": "Using queue speed limit"
@@ -645,7 +660,9 @@
     "tooltip": "DLMan - Download Manager"
   },
   "update": {
-    "available": "v{{version}} available"
+    "available": "v{{version}} available",
+    "clickToDownload": "Click to download the latest version",
+    "download": "Download"
   },
   "welcome": {
     "addDownload": "Add Download",

@@ -115,6 +115,7 @@
     "apply": "اعمال",
     "cancel": "انصراف",
     "clear": "پاک کردن",
+    "close": "بستن",
     "confirm": "تأیید",
     "delete": "حذف",
     "edit": "ویرایش",
@@ -175,6 +176,10 @@
     "title": "کنسول توسعه",
     "warningsBadge": "{{n}} هشدار",
     "warns": "هشدارها"
+  },
+  "dnd": {
+    "download": "دانلود",
+    "items": "موارد"
   },
   "downloadInfo": {
     "calculating": "در حال محاسبه...",
@@ -574,6 +579,8 @@
     "addedDownloads": "{{n}} دانلود اضافه شد",
     "addedToQueue": "{{n}} دانلود به صف اضافه شد",
     "allDataCleared": "همهٔ داده\u200cها پاک شد. در حال تازه\u200cسازی...",
+    "authRequiredDesc": "برای ادامه\u200cی دانلود لطفاً اطلاعات ورود را وارد کنید.",
+    "authRequiredFor": "احراز هویت برای {{domain}} لازم است",
     "browseDesktopOnly": "مرور فقط در نسخهٔ دسکتاپ موجود است",
     "bulkRemoved": "{{n}} دانلود حذف شد",
     "bulkRemovedWithFiles": "{{n}} دانلود حذف شد، {{files}} فایل پاک شد",
@@ -590,6 +597,8 @@
     "dirPickerFailed": "باز کردن انتخابگر پوشه ناموفق بود",
     "downloadAddedToQueue": "دانلود به صف اضافه شد",
     "downloadCancelled": "دانلود لغو شد",
+    "downloadCompletedNamed": "دانلود کامل شد: {{filename}}",
+    "downloadFailedNamed": "دانلود ناموفق بود: {{filename}}",
     "downloadPaused": "دانلود متوقف شد",
     "downloadRemoved": "دانلود حذف شد",
     "downloadRemovedWithFile": "دانلود حذف شد و فایل پاک شد",
@@ -597,6 +606,9 @@
     "downloadResumed": "دانلود ادامه یافت",
     "downloadStarting": "دانلود در حال شروع...",
     "enterUrlAndDest": "لطفاً یک نشانی و مقصد وارد کنید",
+    "executeActionFailed": "اجرای {{action}} ناموفق بود: {{error}}",
+    "executedCommand": "فرمان برای صف «{{name}}» اجرا شد",
+    "executingAction": "در حال اجرای {{action}}...",
     "exportDesktopOnly": "خروجی گرفتن فقط در نسخهٔ دسکتاپ موجود است",
     "exportFailed": "خروجی گرفتن داده\u200cها ناموفق بود",
     "fileDropped": "فایل با موفقیت رها شد",
@@ -606,8 +618,10 @@
     "imported": "{{n}} دانلود وارد شد",
     "importFailed": "وارد کردن داده\u200cها ناموفق بود",
     "invalidExportFormat": "قالب فایل خروجی نامعتبر است",
+    "movedToCategoryN": "{{n}} دانلود به دسته\u200cی {{category}} منتقل شد",
     "movedToQueue": "به صف منتقل شد",
     "movedToQueueN": "{{n}} دانلود به صف منتقل شد",
+    "moveToCategoryFailed": "انتقال مورد به دسته ناموفق بود",
     "nothingSelected": "چیزی انتخاب نشده",
     "noUrlsFound": "هیچ نشانی یافت نشد",
     "noUrlsInClipboard": "هیچ نشانی معتبری در کلیپ\u200cبورد یافت نشد",
@@ -630,6 +644,7 @@
     "stoppedN": "{{n}} دانلود متوقف شد",
     "toggledDevtools": "ابزار توسعه\u200cدهنده جابه\u200cجا شد",
     "toggleDevtoolsFailed": "جابه\u200cجایی ابزار توسعه\u200cدهنده ناموفق بود",
+    "unknownFile": "فایل ناشناخته",
     "updateDestinationFailed": "به\u200cروزرسانی مقصد ناموفق بود: {{error}}",
     "urlCopied": "نشانی در کلیپ\u200cبورد کپی شد",
     "usingQueueSpeedLimit": "استفاده از محدودیت سرعت صف"
@@ -645,7 +660,9 @@
     "tooltip": "DLMan - مدیر دانلود"
   },
   "update": {
-    "available": "نسخه\u200cی {{version}} موجود است"
+    "available": "نسخه\u200cی {{version}} موجود است",
+    "clickToDownload": "برای دانلود آخرین نسخه کلیک کنید",
+    "download": "دانلود"
   },
   "welcome": {
     "addDownload": "افزودن دانلود",

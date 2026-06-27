@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 import { useDownloadStore } from "@/stores/downloads";
 import { useQueueStore } from "@/stores/queues";
 import { useUIStore } from "@/stores/ui";
@@ -203,8 +204,8 @@ export function setupEventListeners(): () => void {
       // Show toast notification for completed/failed downloads
       if (data.payload.status === "completed") {
         const download = useDownloadStore.getState().downloads.get(data.payload.id);
-        const filename = download?.filename || 'Unknown file';
-        toast.success(`Download completed: ${filename}`);
+        const filename = download?.filename || i18n.t('toasts.unknownFile');
+        toast.success(i18n.t('toasts.downloadCompletedNamed', { filename }));
         // Also send OS notification if app not focused
         if (document.hidden && download) {
           notifyDownloadComplete(filename, download.destination);
@@ -216,8 +217,8 @@ export function setupEventListeners(): () => void {
         }
       } else if (data.payload.status === "failed" && data.payload.error) {
         const download = useDownloadStore.getState().downloads.get(data.payload.id);
-        const filename = download?.filename || 'Unknown file';
-        toast.error(`Download failed: ${filename}`, {
+        const filename = download?.filename || i18n.t('toasts.unknownFile');
+        toast.error(i18n.t('toasts.downloadFailedNamed', { filename }), {
           description: data.payload.error,
         });
         // Also send OS notification if app not focused
@@ -263,7 +264,7 @@ export function setupEventListeners(): () => void {
       const queues = useQueueStore.getState().queues;
       const queue = queues.get(data.payload.id);
       if (queue) {
-        toast.info(`Queue "${queue.name}" started`);
+        toast.info(i18n.t('toasts.queueStarted', { name: queue.name }));
         // Send OS notification
         notifyQueueStarted(queue.name);
       }
@@ -278,7 +279,7 @@ export function setupEventListeners(): () => void {
       const queues = useQueueStore.getState().queues;
       const queue = queues.get(data.payload.id);
       if (queue) {
-        toast.success(`Queue "${queue.name}" stopped`);
+        toast.success(i18n.t('toasts.queueStopped', { name: queue.name }));
         // Send OS notification if app not focused
         if (document.hidden) {
           notifyQueueComplete(queue.name);
@@ -292,8 +293,8 @@ export function setupEventListeners(): () => void {
     if (isCleanedUp) return;
     const data = event.payload;
     if (data.type === "CredentialRequired") {
-      toast.info(`Authentication required for ${data.payload.domain}`, {
-        description: "Please provide credentials to continue downloading.",
+      toast.info(i18n.t('toasts.authRequiredFor', { domain: data.payload.domain }), {
+        description: i18n.t('toasts.authRequiredDesc'),
       });
       // Set the pending request to open the credential prompt dialog
       useCredentialsStore.getState().setPendingRequest(data.payload);
@@ -419,14 +420,14 @@ async function checkQueueCompletion(queueId: string) {
         action: 'run_command', 
         command: postAction.run_command 
       });
-      toast.info(`Executed command for queue "${queue.name}"`);
+      toast.info(i18n.t('toasts.executedCommand', { name: queue.name }));
     } else if (postAction !== 'notify') {
       // Sleep, shutdown, hibernate
-      toast.info(`Executing ${postAction}...`, { duration: 5000 });
+      toast.info(i18n.t('toasts.executingAction', { action: postAction }), { duration: 5000 });
       await invoke('execute_post_action', { action: postAction });
     }
   } catch (err) {
     console.error('Failed to execute post-action:', err);
-    toast.error(`Failed to execute ${postAction}: ${err}`);
+    toast.error(i18n.t('toasts.executeActionFailed', { action: postAction, error: String(err) }));
   }
 }
