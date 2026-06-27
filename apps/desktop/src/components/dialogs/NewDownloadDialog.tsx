@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { 
+import { useTranslation } from 'react-i18next';
+import {
   Link, 
   Folder, 
   Download, 
@@ -52,6 +53,7 @@ import type { LinkInfo, Download as DownloadType } from '@/types';
 const isTauri = () => typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
 
 export function NewDownloadDialog() {
+  const { t } = useTranslation();
   const { showNewDownloadDialog, setShowNewDownloadDialog } = useUIStore();
   const queues = useQueuesArray();
   const selectedQueueId = useQueueStore((s) => s.selectedQueueId);
@@ -202,6 +204,9 @@ export function NewDownloadDialog() {
   // Get the effective filename to use (custom if edited, otherwise probed)
   const effectiveFilename = filenameEdited && customFilename ? customFilename : filename;
 
+  // Standalone t() (not nested in another t()'s args) so i18next-parser sees it.
+  const thisCategoryLabel = t('newDownload.thisCategory');
+
   // Probe URL when it changes (debounced)
   useEffect(() => {
     if (!showNewDownloadDialog) {
@@ -266,7 +271,7 @@ export function NewDownloadDialog() {
         }
       } catch (err) {
         if (cancelled) return;
-        setProbeError(err instanceof Error ? err.message : 'Failed to probe URL');
+        setProbeError(err instanceof Error ? err.message : t('newDownload.probeFailed'));
       } finally {
         if (cancelled) return;
         setIsProbing(false);
@@ -277,7 +282,7 @@ export function NewDownloadDialog() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [url, probeTrigger, updateCategoryFromFilename, showNewDownloadDialog, mediaMeta]);
+  }, [url, probeTrigger, updateCategoryFromFilename, showNewDownloadDialog, mediaMeta, t]);
 
   const handlePasteFromClipboard = useCallback(async () => {
     try {
@@ -293,15 +298,15 @@ export function NewDownloadDialog() {
   const handleBrowseDestination = useCallback(async () => {
     // Check if we're in Tauri context
     if (!isTauri()) {
-      toast.error('Browse is only available in the desktop app');
+      toast.error(t('toasts.browseDesktopOnly'));
       return;
     }
-    
+
     try {
       const selected = await openDialog({
         directory: true,
         multiple: false,
-        defaultPath: destination.startsWith('~') 
+        defaultPath: destination.startsWith('~')
           ? undefined // Let Tauri use default
           : destination,
       });
@@ -313,13 +318,13 @@ export function NewDownloadDialog() {
       }
     } catch (err) {
       console.error('Failed to open directory picker:', err);
-      toast.error('Failed to open directory picker');
+      toast.error(t('toasts.dirPickerFailed'));
     }
-  }, [destination]);
+  }, [destination, t]);
 
   const handleAddDownload = useCallback(async (startLater: boolean = false) => {
     if (!url || !destination) {
-      toast.error('Please enter a URL and destination');
+      toast.error(t('toasts.enterUrlAndDest'));
       return;
     }
 
@@ -353,9 +358,9 @@ export function NewDownloadDialog() {
     
     // Show immediate feedback
     if (startLater) {
-      toast.success('Download added to queue');
+      toast.success(t('toasts.downloadAddedToQueue'));
     } else {
-      toast.success('Download starting...');
+      toast.success(t('toasts.downloadStarting'));
     }
     
     // If user chose to remember the path for the category, update now
@@ -424,10 +429,10 @@ export function NewDownloadDialog() {
         removeDownload(tempId);
         // Show error with details
         const errorMsg = err instanceof Error ? err.message : String(err);
-        toast.error('Failed to add download', { description: errorMsg });
+        toast.error(t('toasts.addDownloadFailed'), { description: errorMsg });
       }
     }
-  }, [url, destination, queueId, categoryId, filename, customFilename, filenameEdited, fileSize, browserCookies, mediaMeta, addDownload, removeDownload, setShowNewDownloadDialog, rememberPathForCategory, updateCategory, selectedCategoryId, setSelectedCategory, setFilter, setSelectedQueue, selectedQueueId]);
+  }, [url, destination, queueId, categoryId, filename, customFilename, filenameEdited, fileSize, browserCookies, mediaMeta, addDownload, removeDownload, setShowNewDownloadDialog, rememberPathForCategory, updateCategory, selectedCategoryId, setSelectedCategory, setFilter, setSelectedQueue, selectedQueueId, t]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes >= 1024 * 1024 * 1024) {
@@ -448,10 +453,10 @@ export function NewDownloadDialog() {
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            New Download
+            {t('menu.newDownload')}
           </DialogTitle>
           <DialogDescription>
-            Enter the URL of the file you want to download.
+            {t('newDownload.desc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -461,7 +466,7 @@ export function NewDownloadDialog() {
           <div className="space-y-2">
             <Label htmlFor="url" className="flex items-center gap-2">
               <Link className="h-4 w-4" />
-              URL
+              {t('newDownload.url')}
             </Label>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -469,7 +474,7 @@ export function NewDownloadDialog() {
                   id="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com/file.zip"
+                  placeholder={t('newDownload.urlPlaceholder')}
                   className="pr-10"
                 />
                 <AnimatePresence>
@@ -519,7 +524,7 @@ export function NewDownloadDialog() {
                 variant="outline"
                 size="icon"
                 onClick={handlePasteFromClipboard}
-                title="Paste from clipboard"
+                title={t('newDownload.pasteClipboard')}
               >
                 <Clipboard className="h-4 w-4" />
               </Button>
@@ -542,10 +547,10 @@ export function NewDownloadDialog() {
                   <ShieldAlert className="h-5 w-5 text-amber-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
-                      Authentication Required
+                      {t('newDownload.authRequired')}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      This URL requires a login. Add credentials in Settings → Saved Logins, then the download will authenticate automatically.
+                      {t('newDownload.authHint')}
                     </p>
                   </div>
                   <Button
@@ -557,7 +562,7 @@ export function NewDownloadDialog() {
                     }}
                   >
                     <KeyRound className="h-3.5 w-3.5 mr-1.5" />
-                    Saved Logins
+                    {t('newDownload.savedLogins')}
                   </Button>
                 </div>
               </motion.div>
@@ -578,7 +583,7 @@ export function NewDownloadDialog() {
                     <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     <span className="text-sm font-medium truncate">{effectiveFilename}</span>
                     {filenameEdited && (
-                      <span className="text-xs text-primary bg-primary/10 px-1.5 py-0.5 rounded">custom</span>
+                      <span className="text-xs text-primary bg-primary/10 px-1.5 py-0.5 rounded">{t('newDownload.customBadge')}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -596,12 +601,12 @@ export function NewDownloadDialog() {
                       {showAdvancedPath ? (
                         <>
                           <ChevronUp className="h-3 w-3 mr-1" />
-                          Less
+                          {t('newDownload.less')}
                         </>
                       ) : (
                         <>
                           <ChevronDown className="h-3 w-3 mr-1" />
-                          Rename
+                          {t('newDownload.rename')}
                         </>
                       )}
                     </Button>
@@ -618,18 +623,18 @@ export function NewDownloadDialog() {
                       className="space-y-2"
                     >
                       <Label htmlFor="custom-filename" className="text-xs text-muted-foreground">
-                        File name
+                        {t('newDownload.fileName')}
                       </Label>
                       <Input
                         id="custom-filename"
                         value={customFilename}
                         onChange={(e) => handleFilenameChange(e.target.value)}
-                        placeholder="Enter custom filename"
+                        placeholder={t('newDownload.filenamePlaceholder')}
                         className="h-8 text-sm"
                       />
                       {filenameEdited && customFilename !== filename && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">Original: {filename}</span>
+                          <span className="text-xs text-muted-foreground">{t('newDownload.original', { name: filename })}</span>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -639,7 +644,7 @@ export function NewDownloadDialog() {
                             }}
                             className="h-5 px-1.5 text-xs"
                           >
-                            Reset
+                            {t('newDownload.reset')}
                           </Button>
                         </div>
                       )}
@@ -654,21 +659,21 @@ export function NewDownloadDialog() {
           <div className="space-y-2">
             <Label htmlFor="destination" className="flex items-center gap-2">
               <Folder className="h-4 w-4" />
-              Save to
+              {t('newDownload.saveTo')}
             </Label>
             <div className="flex gap-2">
               <Input
                 id="destination"
                 value={destination}
                 onChange={(e) => handleDestinationChange(e.target.value)}
-                placeholder="/path/to/downloads"
+                placeholder={t('newDownload.destinationPlaceholder')}
                 className="flex-1"
               />
               <Button
                 variant="outline"
                 onClick={handleBrowseDestination}
               >
-                Browse
+                {t('newDownload.browse')}
               </Button>
             </div>
             {/* Remember path for category - only show when path is customized and category is selected */}
@@ -687,7 +692,7 @@ export function NewDownloadDialog() {
                   />
                   <Label htmlFor="remember-path" className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
                     <Save className="h-3 w-3" />
-                    Remember this path for {categories.get(categoryId)?.name || 'this category'}
+                    {t('newDownload.rememberPath', { category: categories.get(categoryId)?.name || thisCategoryLabel })}
                   </Label>
                 </motion.div>
               )}
@@ -698,19 +703,19 @@ export function NewDownloadDialog() {
           <div className="space-y-2">
             <Label htmlFor="category" className="flex items-center gap-2">
               <Tag className="h-4 w-4" />
-              Category
+              {t('newDownload.category')}
               {categoryId && (
-                <span className="text-xs text-muted-foreground">(auto-detected)</span>
+                <span className="text-xs text-muted-foreground">{t('newDownload.autoDetected')}</span>
               )}
             </Label>
             <Select value={categoryId || 'none'} onValueChange={handleCategoryChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a category" />
+                <SelectValue placeholder={t('newDownload.selectCategory')} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">
                   <div className="flex items-center gap-2 text-muted-foreground">
-                    No category
+                    {t('newDownload.noCategory')}
                   </div>
                 </SelectItem>
                 {Array.from(categories.values()).map((category) => (
@@ -730,10 +735,10 @@ export function NewDownloadDialog() {
 
           {/* Queue Selection */}
           <div className="space-y-2">
-            <Label htmlFor="queue">Queue</Label>
+            <Label htmlFor="queue">{t('newDownload.queue')}</Label>
             <Select value={queueId} onValueChange={setQueueId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a queue" />
+                <SelectValue placeholder={t('newDownload.selectQueue')} />
               </SelectTrigger>
               <SelectContent>
                 {queues.map((queue) => (
@@ -758,16 +763,16 @@ export function NewDownloadDialog() {
             variant="outline"
             onClick={() => setShowNewDownloadDialog(false)}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="secondary"
             onClick={() => handleAddDownload(true)}
             disabled={!url || !destination || isAdding}
-            title="Add to queue without starting"
+            title={t('newDownload.downloadLaterTitle')}
           >
             <Clock className="mr-2 h-4 w-4" />
-            Download Later
+            {t('newDownload.downloadLater')}
           </Button>
           <Button
             onClick={() => handleAddDownload(false)}
@@ -776,12 +781,12 @@ export function NewDownloadDialog() {
             {isAdding ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Adding...
+                {t('newDownload.adding')}
               </>
             ) : (
               <>
                 <Download className="mr-2 h-4 w-4" />
-                Start Download
+                {t('newDownload.startDownload')}
               </>
             )}
           </Button>
