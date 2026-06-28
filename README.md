@@ -208,7 +208,9 @@ pnpm tauri dev
 </p>
 
 <p align="center">
-  <img src="docs/become-supporter.png" alt="Become a Supporter" width="256">
+  <a href="https://github.com/sponsors/novincode">
+    <img src="docs/become-supporter.png" alt="Become a Supporter" width="256">
+  </a>
 </p>
 
 Support DLMan financially and help keep development moving. If you can’t donate, sharing DLMan on social media or tweeting about it helps just as much.
