@@ -218,7 +218,7 @@ Support DLMan financially and help keep development moving. If you can’t donat
 
 #### Supporters
 
-| Supporter | Why they helped |
+| Supporter | How they helped |
 |-----------|-----------------|
 | @tom_doerr | Shared DLMan on X/Twitter: https://x.com/tom_doerr/status/2070526815467143459 |
 
