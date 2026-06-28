@@ -207,6 +207,39 @@ pnpm tauri dev
   </a>
 </p>
 
+### Become a supporter
+
+<p align="center">
+  <img src="docs/become-supporter.png" alt="Become a Supporter" width="256">
+</p>
+
+Support DLMan financially and help keep development moving.
+
+- GitHub Sponsors: https://github.com/sponsors/novincode
+- Buy Me a Coffee: https://buymeacoffee.com/codeideal
+
+#### Financial supporters
+
+| Name | Support |
+|------|---------|
+| Your Name Here | Coffee buyer / sponsor |
+| Your Name Here | Brand supporter |
+
+---
+
+### Helped DLMan
+
+If you can’t donate, sharing DLMan on social media, tweeting about it, or spreading the word helps just as much.
+
+#### Community supporters
+
+| Supporter | How they helped |
+|-----------|-----------------|
+| @tom_doerr | Shared DLMan on X/Twitter: https://x.com/tom_doerr/status/2070526815467143459 |
+| @yourhandle | Shared DLMan on X/Twitter |
+| yourname | Mentioned the project |
+| ... | Helped promote DLMan |
+
 ---
 
 ## Documentation
