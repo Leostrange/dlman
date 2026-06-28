@@ -21,6 +21,13 @@
 - AppImages now embed update information (`.upd_info` section + companion `.zsync` file)
 - AppImageUpdate / AppImageLauncher / AM can perform delta updates, downloading only the changed chunks instead of the whole image
 
+### 🐛 Bug Fixes
+
+**Temp Files Now Live on the Target Filesystem** (#7)
+- Partial/segment files are written to a hidden `.dlman-cache` folder **inside the chosen destination**, instead of the system data directory (`~/.local/share/com.dlman.app/temp`)
+- Large downloads (e.g. to an external drive) no longer fill up the system disk, and the final assembly is a same-filesystem copy rather than a cross-device transfer
+- The scratch folder is cleaned up automatically when a download completes or is removed
+
 ### 🔧 Internal
 
 - Language and font preferences persist in the SQLite settings store (single source of truth, same as theme), with a localStorage mirror to prevent a flash of the wrong language/direction on startup
