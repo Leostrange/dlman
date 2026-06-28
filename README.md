@@ -236,9 +236,6 @@ If you can’t donate, sharing DLMan on social media, tweeting about it, or spre
 | Supporter | How they helped |
 |-----------|-----------------|
 | @tom_doerr | Shared DLMan on X/Twitter: https://x.com/tom_doerr/status/2070526815467143459 |
-| @yourhandle | Shared DLMan on X/Twitter |
-| yourname | Mentioned the project |
-| ... | Helped promote DLMan |
 
 ---
 
