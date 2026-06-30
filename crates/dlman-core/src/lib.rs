@@ -90,6 +90,10 @@ impl DlmanCore {
         // Load settings from SQLite database (single source of truth)
         let settings = download_manager.db().load_settings().await?;
         debug!("Loaded settings: default_segments={}", settings.default_segments);
+
+        // Apply the temp-storage policy to the manager so downloads write their
+        // scratch files to the user's chosen location (see TempStorageSettings).
+        download_manager.set_temp_storage(settings.temp_storage.clone()).await;
         
         // Restore downloads from database (resets Downloading → Paused for crash recovery)
         let downloads = download_manager.restore_downloads().await?;
@@ -773,6 +777,8 @@ impl DlmanCore {
         debug!("Updating settings: default_segments={}", settings.default_segments);
         // Save to SQLite database (single source of truth)
         self.download_manager.db().save_settings(&settings).await?;
+        // Propagate the temp-storage policy so subsequent downloads honor it.
+        self.download_manager.set_temp_storage(settings.temp_storage.clone()).await;
         // Update in-memory cache
         *self.settings.write().await = settings;
         Ok(())

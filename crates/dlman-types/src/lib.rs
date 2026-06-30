@@ -305,6 +305,10 @@ pub struct Settings {
     /// Proxy configuration
     #[serde(default)]
     pub proxy: ProxySettings,
+    /// Where in-progress segment/scratch files are written. See
+    /// [`TempStorageSettings`]. Defaults to `auto`.
+    #[serde(default)]
+    pub temp_storage: TempStorageSettings,
     /// UI display language as a BCP-47 code (e.g. "en", "fa"). Desktop UI only;
     /// the CLI ignores it. Defaults to English.
     #[serde(default = "default_language")]
@@ -341,6 +345,42 @@ fn default_proxy_mode() -> String {
     "system".to_string()
 }
 
+/// Where in-progress segment/scratch files are written while a download runs.
+///
+/// Segment data must land somewhere before the final file is assembled, and the
+/// best location is a trade-off:
+/// - the **destination** drive (a hidden `.dlman-cache` beside the final file)
+///   keeps partial data on the same filesystem as the result. This avoids
+///   filling the system disk on huge downloads and keeps the final merge on one
+///   volume, but is slow when the destination is a slow drive such as an
+///   external HDD (see issue #10).
+/// - the **app data** directory (always on the system disk) is fast, but a very
+///   large download can fill the system disk (see issue #7).
+///
+/// `mode` selects the policy; `custom_path` is only consulted for `"custom"`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TempStorageSettings {
+    /// One of: `"auto"` (default), `"appdata"`, `"destination"`, `"custom"`.
+    #[serde(default = "default_temp_mode")]
+    pub mode: String,
+    /// Folder used when `mode == "custom"`.
+    #[serde(default)]
+    pub custom_path: Option<PathBuf>,
+}
+
+fn default_temp_mode() -> String {
+    "auto".to_string()
+}
+
+impl Default for TempStorageSettings {
+    fn default() -> Self {
+        Self {
+            mode: default_temp_mode(),
+            custom_path: None,
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -359,6 +399,7 @@ impl Default for Settings {
             max_retries: 5,
             retry_delay_seconds: 30,
             proxy: ProxySettings::default(),
+            temp_storage: TempStorageSettings::default(),
             language: default_language(),
             font: None,
         }

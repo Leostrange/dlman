@@ -5,9 +5,9 @@
 
 use crate::engine::{DownloadDatabase, RateLimiter, SegmentWorker};
 use crate::error::DlmanError;
-use dlman_types::{CoreEvent, Download, DownloadStatus, Segment};
+use dlman_types::{CoreEvent, Download, DownloadStatus, Segment, TempStorageSettings};
 use reqwest::Client;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::fs::{File, OpenOptions};
@@ -16,19 +16,96 @@ use tokio::sync::broadcast;
 use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
-/// Per-download scratch directory for partial segment files.
+/// Resolve the scratch directory for a download's partial segment files,
+/// honoring the user's temp-storage policy.
 ///
-/// This lives **inside the user's chosen destination folder** (a hidden
-/// `.dlman-cache` subdirectory), so partial data is written to the *same*
-/// filesystem as the final file — e.g. the external drive the user picked —
-/// instead of the system data directory. That keeps large downloads from
-/// filling the system disk, and makes the final merge an in-place,
-/// same-filesystem copy rather than a cross-device transfer. See issue #7.
+/// This is the **single source of truth** for "where do in-progress parts
+/// live" — both the active task and the delete/cleanup path go through here, so
+/// changing the policy changes behavior everywhere at once. See
+/// [`TempStorageSettings`] for the trade-offs behind each mode.
 ///
-/// Segment files within are namespaced by download id, so a shared cache
-/// directory per destination is safe for concurrent downloads.
-pub(crate) fn segment_cache_dir(download: &Download) -> PathBuf {
-    download.destination.join(".dlman-cache")
+/// - `destination` is the download's target folder.
+/// - `app_data_dir` is DLMan's per-user data directory (always on the system
+///   disk).
+/// - `size` is the total download size when known; the `auto` policy uses it to
+///   decide whether the system disk can safely hold the scratch data.
+///
+/// Segment files inside the returned directory are namespaced by download id, so
+/// a directory shared across downloads (appdata/custom) is safe for concurrent
+/// use.
+pub(crate) fn resolve_segment_cache_dir(
+    policy: &TempStorageSettings,
+    destination: &Path,
+    app_data_dir: &Path,
+    size: Option<u64>,
+) -> PathBuf {
+    let appdata_scratch = || app_data_dir.join("temp");
+    let destination_scratch = || destination.join(".dlman-cache");
+
+    match policy.mode.as_str() {
+        // Keep partial data next to the final file, on the destination
+        // filesystem. Best for huge files / external drives — it never fills the
+        // system disk and keeps the merge on one volume. (Issue #7)
+        "destination" => destination_scratch(),
+        // Fast, fixed scratch on the system disk (the pre-1.11 behavior). Best
+        // when the destination is a slow drive, e.g. an external HDD. (Issue #10)
+        "appdata" => appdata_scratch(),
+        // A user-picked folder (e.g. a fast SSD). Falls back to appdata if unset.
+        "custom" => match &policy.custom_path {
+            Some(p) if !p.as_os_str().is_empty() => p.clone(),
+            _ => appdata_scratch(),
+        },
+        // "auto" (default): prefer the fast system-disk scratch, but fall back to
+        // the destination when the system disk can't safely hold the download.
+        // This fixes the slow-HDD regression (#10) for typical downloads without
+        // reintroducing the system-disk-full failure on huge ones (#7).
+        _ => {
+            if appdata_has_room_for(app_data_dir, size) {
+                appdata_scratch()
+            } else {
+                destination_scratch()
+            }
+        }
+    }
+}
+
+/// Every directory a download's scratch files could plausibly live in under the
+/// current policy. Used by the delete path to remove orphaned parts even if the
+/// policy (or available free space, for `auto`) changed since the download
+/// started. Order/dedup is best-effort; callers treat each as best-effort.
+pub(crate) fn candidate_cache_dirs(
+    policy: &TempStorageSettings,
+    destination: &Path,
+    app_data_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        destination.join(".dlman-cache"),
+        app_data_dir.join("temp"),
+    ];
+    if let Some(p) = &policy.custom_path {
+        if !p.as_os_str().is_empty() {
+            dirs.push(p.clone());
+        }
+    }
+    dirs.dedup();
+    dirs
+}
+
+/// Whether the app-data (system disk) volume can comfortably hold `size` bytes
+/// of scratch data. Unknown size is treated as "fits" (typical small/medium
+/// files); if free space can't be determined we also err toward the system
+/// disk, matching the long-standing pre-1.11 default. The `auto` destination
+/// fallback exists for the genuinely-too-big case.
+fn appdata_has_room_for(app_data_dir: &Path, size: Option<u64>) -> bool {
+    let Some(size) = size else {
+        return true;
+    };
+    // Keep ~1 GiB of headroom so a download never wedges the system disk.
+    const HEADROOM: u64 = 1024 * 1024 * 1024;
+    match fs2::available_space(app_data_dir) {
+        Ok(available) => available >= size.saturating_add(HEADROOM),
+        Err(_) => true,
+    }
 }
 
 /// A download task that manages multiple segment workers
@@ -53,9 +130,15 @@ pub struct DownloadTask {
 }
 
 impl DownloadTask {
-    /// Create a new download task
+    /// Create a new download task.
+    ///
+    /// `temp_dir` is the resolved scratch directory for this download's partial
+    /// segment files (see [`resolve_segment_cache_dir`]). The caller owns the
+    /// policy decision so the task itself stays agnostic about *where* scratch
+    /// lives.
     pub fn new(
         download: Download,
+        temp_dir: PathBuf,
         client: Client,
         rate_limiter: RateLimiter,
         db: DownloadDatabase,
@@ -67,14 +150,16 @@ impl DownloadTask {
         retry_delay_secs: u32,
     ) -> Self {
         Self::new_with_credentials(
-            download, client, rate_limiter, db, event_tx,
+            download, temp_dir, client, rate_limiter, db, event_tx,
             paused, cancelled, segment_count, max_retries, retry_delay_secs, None,
         )
     }
 
-    /// Create a new download task with credentials
+    /// Create a new download task with credentials. See [`Self::new`] for the
+    /// meaning of `temp_dir`.
     pub fn new_with_credentials(
         download: Download,
+        temp_dir: PathBuf,
         client: Client,
         rate_limiter: RateLimiter,
         db: DownloadDatabase,
@@ -86,8 +171,6 @@ impl DownloadTask {
         retry_delay_secs: u32,
         credentials: Option<(String, String)>,
     ) -> Self {
-        // Scratch dir lives on the destination filesystem (see segment_cache_dir).
-        let temp_dir = segment_cache_dir(&download);
         // Calculate total downloaded from segments if available, otherwise use download.downloaded
         let total_from_segments: u64 = download.segments.iter().map(|s| s.downloaded).sum();
         let initial_downloaded = if total_from_segments > 0 {
@@ -154,9 +237,9 @@ impl DownloadTask {
         self.db.update_download_status(self.download.id, DownloadStatus::Downloading, None).await?;
         self.emit_status_change(DownloadStatus::Downloading, None).await;
 
-        // Ensure the on-destination scratch directory exists before any segment
-        // worker writes to it. It lives on the user's chosen target filesystem
-        // (see segment_cache_dir), so partial data never lands on the system disk.
+        // Ensure the scratch directory exists before any segment worker writes
+        // to it. Its location is chosen by the user's temp-storage policy (see
+        // resolve_segment_cache_dir) and threaded in as self.temp_dir.
         if let Err(e) = tokio::fs::create_dir_all(&self.temp_dir).await {
             error!("Failed to create scratch directory {:?}: {}", self.temp_dir, e);
             return Err(DlmanError::Io(e));
@@ -909,5 +992,93 @@ impl DownloadTask {
             status,
             error,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy(mode: &str, custom: Option<&str>) -> TempStorageSettings {
+        TempStorageSettings {
+            mode: mode.to_string(),
+            custom_path: custom.map(PathBuf::from),
+        }
+    }
+
+    #[test]
+    fn destination_mode_uses_hidden_dir_beside_file() {
+        let dir = resolve_segment_cache_dir(
+            &policy("destination", None),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+            Some(10),
+        );
+        assert_eq!(dir, PathBuf::from("/mnt/usb/Movies/.dlman-cache"));
+    }
+
+    #[test]
+    fn appdata_mode_uses_system_temp() {
+        let dir = resolve_segment_cache_dir(
+            &policy("appdata", None),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+            Some(10),
+        );
+        assert_eq!(dir, PathBuf::from("/home/u/.local/share/dlman/temp"));
+    }
+
+    #[test]
+    fn custom_mode_uses_chosen_dir_but_falls_back_when_empty() {
+        let dir = resolve_segment_cache_dir(
+            &policy("custom", Some("/fast/ssd/scratch")),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+            None,
+        );
+        assert_eq!(dir, PathBuf::from("/fast/ssd/scratch"));
+
+        let fallback = resolve_segment_cache_dir(
+            &policy("custom", None),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+            None,
+        );
+        assert_eq!(fallback, PathBuf::from("/home/u/.local/share/dlman/temp"));
+    }
+
+    #[test]
+    fn auto_uses_appdata_when_size_unknown() {
+        // Unknown size is treated as "fits" → fast system-disk scratch.
+        let dir = resolve_segment_cache_dir(
+            &policy("auto", None),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+            None,
+        );
+        assert_eq!(dir, PathBuf::from("/home/u/.local/share/dlman/temp"));
+    }
+
+    #[test]
+    fn unknown_mode_is_treated_as_auto() {
+        let dir = resolve_segment_cache_dir(
+            &policy("something-else", None),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+            None,
+        );
+        assert_eq!(dir, PathBuf::from("/home/u/.local/share/dlman/temp"));
+    }
+
+    #[test]
+    fn candidate_dirs_cover_destination_appdata_and_custom() {
+        let dirs = candidate_cache_dirs(
+            &policy("custom", Some("/fast/ssd/scratch")),
+            Path::new("/mnt/usb/Movies"),
+            Path::new("/home/u/.local/share/dlman"),
+        );
+        assert!(dirs.contains(&PathBuf::from("/mnt/usb/Movies/.dlman-cache")));
+        assert!(dirs.contains(&PathBuf::from("/home/u/.local/share/dlman/temp")));
+        assert!(dirs.contains(&PathBuf::from("/fast/ssd/scratch")));
     }
 }

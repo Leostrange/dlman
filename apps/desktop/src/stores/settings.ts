@@ -48,6 +48,8 @@ const defaultSettings: Settings = {
   // Localization
   language: "en",
   font: null,
+  // Temp/scratch storage for in-progress segment files
+  temp_storage: { mode: "auto", custom_path: null },
 };
 
 export const useSettingsStore = create<SettingsState>()(

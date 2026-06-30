@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.11.1] - 2026-06-30
+
+### 🐛 Bug Fixes
+
+**Choose Where Temporary Download Files Are Stored** (#10)
+- Downloads write their in-progress parts to a scratch folder before merging them into the final file. As of 1.11.0 that scratch always lived **next to the destination**, which made downloads to slow external drives (e.g. an HDD) much slower
+- Added a **Temporary / Cache Storage** setting (Settings ▸ Downloads) so you can choose where scratch lives — on all platforms:
+  - **Automatic** (new default): uses the fast system disk, automatically falling back to the destination drive only when the system disk can't hold the download. This fixes the slow-HDD regression (#10) without bringing back the system-disk-full failure that the destination scratch originally solved (#7)
+  - **System disk**: always scratch on the app's data folder (the fast, pre-1.11 behavior)
+  - **Next to the file**: keep scratch beside the final file (best for very large downloads to external drives)
+  - **Custom folder**: point scratch at any folder you like, such as a fast SSD
+- The temp location is now a single, well-defined policy resolved in one place, and the delete/cleanup path removes leftover parts from every candidate location
+
 ## [1.11.0] - 2026-06-28
 
 ### ✨ New Features

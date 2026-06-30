@@ -42,6 +42,8 @@ urlencoding = "2.1"
 futures = { workspace = true }
 parking_lot = { workspace = true }
 directories = { workspace = true }
+# Cross-platform free-space detection (used by the `auto` temp-storage policy)
+fs2 = "0.4"
 async-trait = "0.1"
 
 # XML parsing (for DASH MPD)

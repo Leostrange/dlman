@@ -488,6 +488,29 @@
     "retryDelay": "Retry delay (seconds)",
     "retryDelayHint": "Time to wait between retry attempts. Default: 30 seconds.",
     "retrySettings": "Retry Settings",
+    "tempStorage": {
+      "title": "Temporary / Cache Storage",
+      "description": "While a download is in progress its parts are written to a scratch folder, then merged into the final file. Choose where that scratch lives.",
+      "auto": {
+        "label": "Automatic (recommended)",
+        "desc": "Use the fast system disk, and switch to the destination drive only when the system disk can't hold the download. Best for most people."
+      },
+      "appdata": {
+        "label": "System disk (fastest)",
+        "desc": "Always keep scratch on the app's data folder on the system disk. Best when downloading to a slow external drive (e.g. an HDD)."
+      },
+      "destination": {
+        "label": "Next to the file",
+        "desc": "Keep scratch in a hidden folder beside the final file. Best for very large downloads to external drives, to avoid filling the system disk."
+      },
+      "custom": {
+        "label": "Custom folder",
+        "desc": "Write scratch to a folder you choose, e.g. a fast SSD."
+      },
+      "customFolder": "Custom temporary folder",
+      "customPlaceholder": "/path/to/fast/scratch/folder",
+      "selectCustomTitle": "Select Temporary Folder"
+    },
     "saveChanges": "Save Changes",
     "savedLoginsDesc": "Save credentials for subscription-based websites. Matching credentials are automatically applied when downloading from these domains.",
     "savedLoginsTitle": "Saved Logins",

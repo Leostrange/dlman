@@ -111,6 +111,8 @@ export interface Settings {
   font?: string | null;
   // Proxy settings
   proxy?: ProxySettings;
+  // Temp/scratch storage for in-progress segment files
+  temp_storage?: TempStorageSettings;
 }
 
 export interface ProxySettings {
@@ -120,6 +122,19 @@ export interface ProxySettings {
   no_proxy?: string;
   username?: string;
   password?: string;
+}
+
+/**
+ * Where partial/segment files are written while a download is in progress.
+ * - `auto`: fast system-disk scratch, automatically falling back to the
+ *   destination drive when the system disk can't hold the download.
+ * - `appdata`: always use the fast app-data dir on the system disk.
+ * - `destination`: keep scratch beside the final file (best for external drives).
+ * - `custom`: a user-chosen folder (e.g. a fast SSD).
+ */
+export interface TempStorageSettings {
+  mode: 'auto' | 'appdata' | 'destination' | 'custom';
+  custom_path?: string | null;
 }
 
 export type Theme = "light" | "dark" | "system";

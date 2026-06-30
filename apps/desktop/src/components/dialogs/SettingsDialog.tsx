@@ -31,6 +31,7 @@ import {
   EyeOff,
   Languages,
   Type,
+  HardDrive,
 } from 'lucide-react';
 
 import {
@@ -438,6 +439,100 @@ export function SettingsDialog() {
                     {t('settings.retryDelayHint')}
                   </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                <HardDrive className="h-4 w-4" />
+                {t('settings.tempStorage.title')}
+              </h3>
+              <p className="pl-6 text-xs text-muted-foreground">
+                {t('settings.tempStorage.description')}
+              </p>
+              <div className="pl-6 space-y-3">
+                <div className="grid gap-2">
+                  {[
+                    { value: 'auto', label: t('settings.tempStorage.auto.label'), description: t('settings.tempStorage.auto.desc') },
+                    { value: 'appdata', label: t('settings.tempStorage.appdata.label'), description: t('settings.tempStorage.appdata.desc') },
+                    { value: 'destination', label: t('settings.tempStorage.destination.label'), description: t('settings.tempStorage.destination.desc') },
+                    { value: 'custom', label: t('settings.tempStorage.custom.label'), description: t('settings.tempStorage.custom.desc') },
+                  ].map((option) => {
+                    const currentMode = localSettings.temp_storage?.mode || 'auto';
+                    const selected = currentMode === option.value;
+                    return (
+                      <div
+                        key={option.value}
+                        className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selected
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-muted-foreground/50'
+                        }`}
+                        onClick={() => {
+                          handleChange('temp_storage', {
+                            ...localSettings.temp_storage,
+                            mode: option.value as NonNullable<SettingsType['temp_storage']>['mode'],
+                          });
+                        }}
+                      >
+                        <div className={`mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                          selected ? 'border-primary' : 'border-muted-foreground/50'
+                        }`}>
+                          {selected && <div className="h-2 w-2 rounded-full bg-primary" />}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{option.label}</p>
+                          <p className="text-xs text-muted-foreground">{option.description}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {localSettings.temp_storage?.mode === 'custom' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="tempCustomPath">
+                      {t('settings.tempStorage.customFolder')}
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="tempCustomPath"
+                        value={localSettings.temp_storage?.custom_path || ''}
+                        onChange={(e) =>
+                          handleChange('temp_storage', {
+                            ...localSettings.temp_storage,
+                            mode: 'custom',
+                            custom_path: e.target.value || null,
+                          })
+                        }
+                        placeholder={t('settings.tempStorage.customPlaceholder')}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={async () => {
+                          const selected = await open({
+                            directory: true,
+                            multiple: false,
+                            title: t('settings.tempStorage.selectCustomTitle'),
+                            defaultPath: localSettings.temp_storage?.custom_path || undefined,
+                          });
+                          if (selected && typeof selected === 'string') {
+                            handleChange('temp_storage', {
+                              ...localSettings.temp_storage,
+                              mode: 'custom',
+                              custom_path: selected,
+                            });
+                          }
+                        }}
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

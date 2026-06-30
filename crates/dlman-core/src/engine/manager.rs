@@ -5,9 +5,10 @@
 //! - Manages the global rate limiter
 //! - Handles download queue logic
 
+use crate::engine::download_task::{candidate_cache_dirs, resolve_segment_cache_dir};
 use crate::engine::{DownloadDatabase, DownloadTask, RateLimiter};
 use crate::error::DlmanError;
-use dlman_types::{CoreEvent, Download, DownloadStatus, LinkInfo, ProxySettings};
+use dlman_types::{CoreEvent, Download, DownloadStatus, LinkInfo, ProxySettings, TempStorageSettings};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,6 +26,13 @@ pub struct DownloadManager {
     client: Client,
     /// Database
     db: DownloadDatabase,
+    /// DLMan's per-user data directory (system disk). Used to resolve the
+    /// scratch directory for the `auto`/`appdata` temp-storage policies.
+    data_dir: PathBuf,
+    /// Current temp-storage policy (where partial segment files are written).
+    /// Shared so a settings change is picked up by subsequent downloads without
+    /// recreating the manager.
+    temp_storage: Arc<RwLock<TempStorageSettings>>,
     /// Event broadcaster
     event_tx: broadcast::Sender<CoreEvent>,
 }
@@ -127,13 +135,28 @@ impl DownloadManager {
         
         // Create HTTP client with proxy settings
         let client = build_http_client(proxy_settings)?;
-        
+
         Ok(Self {
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             client,
             db,
+            data_dir,
+            temp_storage: Arc::new(RwLock::new(TempStorageSettings::default())),
             event_tx,
         })
+    }
+
+    /// Update the temp-storage policy used for new downloads. Called by the core
+    /// when settings are loaded or changed. In-flight downloads keep the scratch
+    /// directory they started with.
+    pub async fn set_temp_storage(&self, policy: TempStorageSettings) {
+        *self.temp_storage.write().await = policy;
+    }
+
+    /// Resolve the scratch directory for a download under the current policy.
+    async fn resolve_temp_dir(&self, download: &Download) -> PathBuf {
+        let policy = self.temp_storage.read().await.clone();
+        resolve_segment_cache_dir(&policy, &download.destination, &self.data_dir, download.size)
     }
     
     /// Update the HTTP client with new proxy settings
@@ -330,9 +353,15 @@ impl DownloadManager {
         let active_tasks_for_cleanup = self.active_tasks.clone();
         let task_id = id;
         
+        // Resolve where this download's partial segment files will live, based
+        // on the user's temp-storage policy (see resolve_segment_cache_dir).
+        let temp_dir = self.resolve_temp_dir(&download).await;
+        info!("Scratch directory for {}: {:?}", id, temp_dir);
+
         // Create download task with its own rate limiter
         let task = DownloadTask::new_with_credentials(
             download,
+            temp_dir,
             self.client.clone(),
             download_rate_limiter,
             self.db.clone(),
@@ -498,19 +527,26 @@ impl DownloadManager {
                 }
             }
             
-            // Delete partial segment files from the on-destination scratch dir.
-            let cache_dir = super::download_task::segment_cache_dir(&download);
-            for segment in &download.segments {
-                let temp_path = cache_dir.join(format!(
-                    "{}_segment_{}.part",
-                    id, segment.index
-                ));
-                if temp_path.exists() {
-                    let _ = tokio::fs::remove_file(&temp_path).await;
+            // Delete partial segment files from every directory this download's
+            // scratch could live in. We check all candidates (destination,
+            // appdata, custom) rather than just the currently-resolved one, so
+            // changing the temp-storage policy mid-flight never leaves orphans.
+            let policy = self.temp_storage.read().await.clone();
+            let cache_dirs = candidate_cache_dirs(&policy, &download.destination, &self.data_dir);
+            for cache_dir in &cache_dirs {
+                for segment in &download.segments {
+                    let temp_path = cache_dir.join(format!(
+                        "{}_segment_{}.part",
+                        id, segment.index
+                    ));
+                    if temp_path.exists() {
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                    }
                 }
+                // Best-effort: drop the scratch dir if no other downloads' parts
+                // remain (remove_dir only succeeds when the directory is empty).
+                let _ = tokio::fs::remove_dir(cache_dir).await;
             }
-            // Best-effort: drop the scratch dir if no other downloads' parts remain.
-            let _ = tokio::fs::remove_dir(&cache_dir).await;
         }
         
         // Delete from DB (always happens, even if file deletion failed)
