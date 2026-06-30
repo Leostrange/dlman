@@ -38,7 +38,11 @@ apps/desktop/src-tauri/target
 
 # Rust
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is intentionally committed: this workspace builds release
+# binaries (the Tauri desktop app + CLI), so we want fully reproducible CI
+# builds. Without the lockfile, CI floats transitive deps to the latest
+# semver-compatible versions, which broke the v1.11.1 release when `time`
+# 0.3.52 stopped compiling against `cookie` 0.18.1.
 
 # Environment
 .env
