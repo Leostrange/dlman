@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release Windows
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v1.0.0)'
+        description: 'Version tag (e.g., v1.11.1)'
         required: true
-        default: 'v1.0.0'
+        default: 'v1.11.1'
 
 permissions:
   contents: write
@@ -22,94 +22,59 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create-release.outputs.id }}
-      upload_url: ${{ steps.create-release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get version from tag
+      - name: Get version
         id: get_version
+        shell: bash
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
             VERSION="${GITHUB_REF#refs/tags/}"
           fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-          # A pre-release tag carries a semver suffix, e.g. v1.10.0-beta.1.
-          # Those are published as GitHub prereleases and kept OUT of the stable
-          # "latest" channel, so existing users and the AppImage zsync "latest"
-          # pointer never auto-pull an untested build.
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
           if [[ "${VERSION}" == *-* ]]; then
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "make_latest=false" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
           else
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "make_latest=true" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Extract changelog for version
-        id: changelog
+      - name: Build release notes
+        shell: bash
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           VERSION_NUM="${VERSION#v}"
-          # Strip any pre-release suffix so a beta tag (1.10.0-beta.1) reuses the
-          # target release's changelog section (## [1.10.0]).
           VERSION_NUM="${VERSION_NUM%%-*}"
 
-          echo "Looking for version: ${VERSION_NUM}"
-          
-          # Extract changelog section for this version
-          # Match ## [VERSION] or ## [VERSION] - DATE format
-          # Stop at next ## [ or end of file
           CHANGELOG=$(sed -n "/^## \[${VERSION_NUM}\]/,/^## \[/{ /^## \[${VERSION_NUM}\]/d; /^## \[/d; p; }" CHANGELOG.md)
-          
-          # Trim leading/trailing whitespace
           CHANGELOG=$(echo "$CHANGELOG" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-          
-          # Debug: show what we found
-          echo "Extracted changelog:"
-          echo "$CHANGELOG"
-          
-          # If no changelog found, use default message
+
           if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="See [CHANGELOG.md](https://github.com/novincode/dlman/blob/main/CHANGELOG.md) for details."
+            CHANGELOG="See CHANGELOG.md for details."
           fi
-          
-          # Write to file with download instructions + changelog
+
           {
             echo "## Downloads"
             echo ""
-            echo "### Desktop App"
             echo "| Platform | File |"
-            echo "|----------|------|"
-            echo "| Windows | \`.msi\` or \`.exe\` |"
-            echo "| macOS Intel | \`.dmg\` (x64) |"
-            echo "| macOS Apple Silicon | \`.dmg\` (aarch64) |"
-            echo "| Linux | \`.deb\` / \`.rpm\` / \`.AppImage\` |"
+            echo "| --- | --- |"
+            echo "| Windows | \`.exe\` / \`.msi\` |"
             echo ""
-            echo "> **macOS:** Run \`xattr -cr /Applications/DLMan.app\` after install."
-            echo ""
-            echo "### Browser Extension"
-            echo "| Browser | File |"
-            echo "|---------|------|"
-            echo "| Chrome / Edge / Brave | \`dlman-extension-chrome-*.zip\` |"
-            echo "| Firefox | \`dlman-extension-firefox-*.zip\` |"
-            echo ""
-            echo "> **Install:** Extract and load as unpacked extension, or submit to browser stores."
+            echo "This fork publishes Windows desktop builds only."
+            echo "macOS, Linux, and browser-extension artifacts are not published here."
             echo ""
             echo "---"
             echo ""
             echo "$CHANGELOG"
-          } > /tmp/release_body.txt
-          
-          # Debug: show final body
-          echo "Final release body:"
-          cat /tmp/release_body.txt
-          
-          echo "changelog_file=/tmp/release_body.txt" >> $GITHUB_OUTPUT
+          } > /tmp/release_body.md
 
       - name: Create Release
         id: create-release
@@ -118,32 +83,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.get_version.outputs.version }}
-          name: DLMan ${{ steps.get_version.outputs.version }}
-          body_path: /tmp/release_body.txt
+          name: DLMan Windows ${{ steps.get_version.outputs.version }}
+          body_path: /tmp/release_body.md
           draft: false
           prerelease: ${{ steps.get_version.outputs.prerelease }}
           make_latest: ${{ steps.get_version.outputs.make_latest }}
 
-  build-tauri:
+  build-windows:
     needs: create-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            args: '--target x86_64-apple-darwin'
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            args: '--target aarch64-apple-darwin'
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            args: ''
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            args: ''
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -160,8 +108,7 @@ jobs:
 
       - name: Get pnpm store directory
         shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Setup pnpm cache
         uses: actions/cache@v3
@@ -174,37 +121,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-pc-windows-msvc
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
 
-      - name: Install Rust target (macOS cross-compile)
-        if: matrix.platform == 'macos-latest'
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Install dependencies (Ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          # Remove problematic Microsoft repos that cause 403 errors
-          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
-          sudo rm -f /etc/apt/sources.list.d/azure-cli.list
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev \
-            zsync \
-            binutils
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri app
+      - name: Build Windows app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -212,136 +139,3 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           projectPath: apps/desktop
           tauriScript: pnpm tauri
-
-      # Embed AppImage update information so AppImageUpdate / AppImageLauncher / AM
-      # can perform zsync delta updates (downloading only the changed chunks).
-      # Tauri's bundler does not emit this, so we patch the reserved `.upd_info`
-      # ELF section in place and generate the companion `.zsync` file, then
-      # re-upload the patched AppImage (replacing the one tauri-action uploaded)
-      # alongside the `.zsync`. See: https://github.com/AppImage/AppImageSpec
-      - name: Embed AppImage update information (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.create-release.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          # This is a Cargo workspace, so the bundle output is under the
-          # workspace-root target dir (target/release/bundle/appimage/...),
-          # not apps/desktop/src-tauri/target.
-          APPIMAGE=$(find target -type f -name '*.AppImage' | head -1)
-          if [ -z "${APPIMAGE}" ]; then
-            echo "::error::No AppImage produced by the Tauri build"; exit 1
-          fi
-          NAME=$(basename "${APPIMAGE}")
-          echo "Found AppImage: ${NAME}"
-
-          # gh-releases-zsync|<user>|<repo>|<release>|<asset-glob>
-          # `latest` makes AppImageUpdate always pull the newest release; the glob
-          # must match the .zsync asset name (version-independent, amd64 build).
-          UPDATE_INFO="gh-releases-zsync|novincode|dlman|latest|DLMan_*_amd64.AppImage.zsync"
-
-          # The AppImage type-2 runtime reserves a zeroed `.upd_info` ELF section
-          # exactly so update information can be embedded after the fact.
-          read -r OFF SZ < <(objdump -h "${APPIMAGE}" | awk '$2==".upd_info"{print $6, $3; exit}')
-          if [ -z "${OFF:-}" ]; then
-            echo "::error::.upd_info section not found in AppImage runtime"; exit 1
-          fi
-          OFF_DEC=$((16#$OFF)); SZ_DEC=$((16#$SZ))
-          echo ".upd_info at offset 0x${OFF} (${OFF_DEC}), size 0x${SZ} (${SZ_DEC} bytes)"
-          if [ "${#UPDATE_INFO}" -ge "${SZ_DEC}" ]; then
-            echo "::error::Update info string (${#UPDATE_INFO}B) exceeds section size"; exit 1
-          fi
-
-          # Clear the section, then write the update-info string into it (in place).
-          dd if=/dev/zero of="${APPIMAGE}" bs=1 seek="${OFF_DEC}" count="${SZ_DEC}" conv=notrunc status=none
-          printf '%s' "${UPDATE_INFO}" | dd of="${APPIMAGE}" bs=1 seek="${OFF_DEC}" conv=notrunc status=none
-
-          echo "Embedded: $(dd if="${APPIMAGE}" bs=1 skip="${OFF_DEC}" count="${#UPDATE_INFO}" status=none)"
-
-          # Build the zsync control file from the patched AppImage. The relative
-          # `-u` name is resolved by AppImageUpdate against the release assets.
-          zsyncmake -u "${NAME}" -o "${NAME}.zsync" "${APPIMAGE}"
-
-          # Replace the release assets with the update-info-enabled versions.
-          gh release upload "${TAG}" "${APPIMAGE}" "${NAME}.zsync" \
-            --repo novincode/dlman --clobber
-
-  build-extension:
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Get version
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update extension version
-        run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
-          VERSION_NUM="${VERSION#v}"
-          cd apps/extension
-          # Update version in package.json and wxt.config.ts manifest
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION_NUM}\"/" package.json
-          sed -i "s/version: '[^']*'/version: '${VERSION_NUM}'/" wxt.config.ts
-
-      - name: Build and package extensions
-        run: |
-          cd apps/extension
-          # Install dependencies
-          pnpm install --frozen-lockfile
-          # Build for Chrome and Firefox, and create zip packages
-          pnpm release
-
-      - name: Get version for filenames
-        id: version_filename
-        run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
-          VERSION_NUM="${VERSION#v}"
-          echo "version_num=${VERSION_NUM}" >> $GITHUB_OUTPUT
-
-      - name: Rename and stage extension zips
-        run: |
-          VERSION="${{ steps.version_filename.outputs.version_num }}"
-          cd apps/extension
-          
-          # WXT generates zips in dist/ directory
-          # Rename them to our standard naming
-          if [ -f "dist/chrome-mv3.zip" ]; then
-            cp dist/chrome-mv3.zip "dlman-extension-chrome-${VERSION}.zip"
-          fi
-          if [ -f "dist/firefox-mv2.zip" ]; then
-            cp dist/firefox-mv2.zip "dlman-extension-firefox-${VERSION}.zip"
-          fi
-          
-          # List what we have
-          ls -lah dlman-extension-*.zip || echo "No extension zips found!"
-
-      - name: Upload extensions to release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          files: apps/extension/dlman-extension-*.zip
