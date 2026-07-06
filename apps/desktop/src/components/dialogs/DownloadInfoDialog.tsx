@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { translateCategoryName } from '@/stores/categories';
 import {
   Dialog,
   DialogContent,
@@ -263,25 +264,30 @@ export function DownloadInfoDialog({ open, onOpenChange, download }: DownloadInf
 
   const formatEta = (seconds: number | null) => {
     if (seconds === null) return t('downloadInfo.calculating');
-    if (seconds < 60) return `${Math.round(seconds)}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+    const s = t('units.seconds');
+    const m = t('units.minutes');
+    const h = t('units.hours');
+    if (seconds < 60) return `${Math.round(seconds)}${s}`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}${m} ${Math.round(seconds % 60)}${s}`;
     const hours = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${mins}m`;
+    return `${hours}${h} ${mins}${m}`;
   };
 
   const formatSpeed = (bytesPerSecond: number) => {
-    if (bytesPerSecond < 1024) return `${Math.round(bytesPerSecond)} B/s`;
-    if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
-    return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
+    const ps = t('units.perSecond');
+    if (bytesPerSecond < 1024) return `${Math.round(bytesPerSecond)} ${t('units.b')}${ps}`;
+    if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} ${t('units.kb')}${ps}`;
+    return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} ${t('units.mb')}${ps}`;
   };
 
   // Format speed limit (KB/s value) with auto-scaling to MB/s or GB/s
   const formatSpeedLimitDisplay = (kbps: number) => {
     if (kbps === 0) return t('downloadItem.unlimited');
-    if (kbps < 1024) return `${kbps} KB/s`;
-    if (kbps < 1024 * 1024) return `${(kbps / 1024).toFixed(1)} MB/s`;
-    return `${(kbps / (1024 * 1024)).toFixed(2)} GB/s`;
+    const ps = t('units.perSecond');
+    if (kbps < 1024) return `${kbps} ${t('units.kb')}${ps}`;
+    if (kbps < 1024 * 1024) return `${(kbps / 1024).toFixed(1)} ${t('units.mb')}${ps}`;
+    return `${(kbps / (1024 * 1024)).toFixed(2)} ${t('units.gb')}${ps}`;
   };
 
   return (
@@ -440,7 +446,7 @@ export function DownloadInfoDialog({ open, onOpenChange, download }: DownloadInf
                   <FileType className="h-3.5 w-3.5" />
                   {t('newDownload.category')}
                 </p>
-                <p className="font-medium">{category.name}</p>
+                <p className="font-medium">{translateCategoryName(category.name)}</p>
               </div>
             )}
           </div>

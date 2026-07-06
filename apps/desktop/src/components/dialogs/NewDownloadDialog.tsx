@@ -4,6 +4,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { translateCategoryName } from '@/stores/categories';
 import {
   Link, 
   Folder, 
@@ -42,7 +43,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useUIStore } from '@/stores/ui';
-import { useQueuesArray, useQueueStore } from '@/stores/queues';
+import { useQueuesArray, useQueueStore, translateQueueName } from '@/stores/queues';
 import { useDownloadStore } from '@/stores/downloads';
 import { useCategoryStore } from '@/stores/categories';
 import { getPendingClipboardUrls, getPendingDropUrls, getPendingCookies, getPendingMediaMeta } from '@/lib/events';
@@ -342,7 +343,7 @@ export function NewDownloadDialog() {
       id: tempId,
       url,
       final_url: null,
-      filename: filenameToUse || url.split('/').pop() || 'downloading...',
+      filename: filenameToUse || url.split('/').pop() || t('common.downloading'),
       destination,
       size: fileSize,
       downloaded: 0,
@@ -441,15 +442,15 @@ export function NewDownloadDialog() {
 
   const formatFileSize = (bytes: number) => {
     if (bytes >= 1024 * 1024 * 1024) {
-      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} ${t('units.gb')}`;
     }
     if (bytes >= 1024 * 1024) {
-      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+      return `${(bytes / (1024 * 1024)).toFixed(2)} ${t('units.mb')}`;
     }
     if (bytes >= 1024) {
-      return `${(bytes / 1024).toFixed(2)} KB`;
+      return `${(bytes / 1024).toFixed(2)} ${t('units.kb')}`;
     }
-    return `${bytes} B`;
+    return `${bytes} ${t('units.b')}`;
   };
 
   return (
@@ -737,7 +738,7 @@ export function NewDownloadDialog() {
                         className="h-3 w-3 rounded-full"
                         style={{ backgroundColor: category.color }}
                       />
-                      {category.name}
+                      {translateCategoryName(category.name)}
                     </div>
                   </SelectItem>
                 ))}
@@ -760,7 +761,7 @@ export function NewDownloadDialog() {
                         className="h-3 w-3 rounded-full"
                         style={{ backgroundColor: queue.color }}
                       />
-                      {queue.name}
+                      {translateQueueName(queue.name)}
                     </div>
                   </SelectItem>
                 ))}

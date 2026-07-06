@@ -166,7 +166,7 @@ export async function initAppMenu(): Promise<void> {
             About: {
               name: 'DLMan',
               version,
-              copyright: '© 2025 DLMan Contributors',
+              copyright: i18n.t('about.copyright'),
               website: 'https://github.com/novincode/dlman',
             },
           },

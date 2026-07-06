@@ -1,5 +1,6 @@
 import * as React from "react";
 import { ChevronUp, ChevronDown, Clock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
@@ -73,11 +74,13 @@ function formatDisplayTime(time: string | null, use24Hour: boolean): string {
 export function TimePicker({
   value,
   onChange,
-  placeholder = "Select time",
+  placeholder,
   disabled = false,
   use24Hour = false,
   className,
 }: TimePickerProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t("timePicker.selectTime");
   const [open, setOpen] = React.useState(false);
   const [timeState, setTimeState] = React.useState<TimeState>(() => 
     parseTime(value, use24Hour)
@@ -154,7 +157,7 @@ export function TimePicker({
           )}
         >
           <Clock className="mr-2 h-4 w-4" />
-          {value ? formatDisplayTime(value, use24Hour) : placeholder}
+          {value ? formatDisplayTime(value, use24Hour) : resolvedPlaceholder}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-4" align="start">
@@ -314,10 +317,10 @@ export function TimePicker({
               onClick={handleClear}
               className="text-muted-foreground"
             >
-              Clear
+              {t("timePicker.clear")}
             </Button>
             <Button size="sm" onClick={handleConfirm}>
-              Set Time
+              {t("timePicker.setTime")}
             </Button>
           </div>
         </div>

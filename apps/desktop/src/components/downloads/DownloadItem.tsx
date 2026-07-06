@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { translateCategoryName } from "@/stores/categories";
 import {
   FileIcon,
   CheckCircle2,
@@ -580,7 +581,7 @@ export function DownloadItem({ download, isFocused = false }: DownloadItemProps)
                     {effectiveSpeedLimit && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex items-center gap-1">
                         <Gauge className="h-3 w-3" />
-                        {Math.round(effectiveSpeedLimit / 1024)} KB/s
+                        {Math.round(effectiveSpeedLimit / 1024)} {t('units.kb')}{t('units.perSecond')}
                       </span>
                     )}
                     {/* Category badge */}
@@ -596,7 +597,7 @@ export function DownloadItem({ download, isFocused = false }: DownloadItemProps)
                           }}
                         >
                           <IconComponent className="h-3 w-3" />
-                          {category.name}
+                          {translateCategoryName(category.name)}
                         </span>
                       );
                     })()}

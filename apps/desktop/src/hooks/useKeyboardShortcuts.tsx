@@ -67,7 +67,7 @@ export function useKeyboardShortcuts() {
       key: "n",
       metaKey: true,
       action: () => setShowNewDownloadDialog(true),
-      description: "New Download",
+      description: t("shortcuts.newDownload"),
     },
     // Batch import
     {
@@ -75,34 +75,34 @@ export function useKeyboardShortcuts() {
       metaKey: true,
       shiftKey: true,
       action: () => setShowBatchImportDialog(true),
-      description: "Batch Import",
+      description: t("shortcuts.batchImport"),
     },
     // Settings
     {
       key: ",",
       metaKey: true,
       action: () => setShowSettingsDialog(true),
-      description: "Settings",
+      description: t("shortcuts.settings"),
     },
     // Queue manager (Cmd+J for Jobs/Queue)
     {
       key: "j",
       metaKey: true,
       action: () => setShowQueueManagerDialog(true),
-      description: "Queue Manager",
+      description: t("shortcuts.queueManager"),
     },
     // Select all (only visible downloads - respects queue/category/filter selection)
     {
       key: "a",
       metaKey: true,
       action: () => selectAll(visibleDownloads.map(d => d.id)),
-      description: "Select All",
+      description: t("shortcuts.selectAll"),
     },
     // Deselect all
     {
       key: "Escape",
       action: () => clearSelection(),
-      description: "Clear Selection",
+      description: t("shortcuts.clearSelection"),
     },
     // Paste from clipboard
     {
@@ -124,7 +124,7 @@ export function useKeyboardShortcuts() {
           console.error("Clipboard read failed:", err);
         }
       },
-      description: "Paste URL",
+      description: t("shortcuts.pasteUrl"),
     },
     // Delete selected downloads
     {
@@ -133,7 +133,7 @@ export function useKeyboardShortcuts() {
         if (selectedIds.size === 0) return;
         setShowBulkDeleteDialog(true);
       },
-      description: "Delete Selected",
+      description: t("shortcuts.deleteSelected"),
     },
     // Also support Backspace for delete
     {
@@ -142,7 +142,7 @@ export function useKeyboardShortcuts() {
         if (selectedIds.size === 0) return;
         setShowBulkDeleteDialog(true);
       },
-      description: "Delete Selected",
+      description: t("shortcuts.deleteSelected"),
     },
   ];
 
@@ -164,7 +164,7 @@ export function useKeyboardShortcuts() {
           toast.error(t('toasts.toggleDevtoolsFailed'));
         }
       },
-      description: "Toggle DevTools (Dev Mode)",
+      description: t("shortcuts.toggleDevTools"),
     });
   }
 
@@ -221,14 +221,15 @@ export function useKeyboardShortcuts() {
 
 // Component to display shortcuts help
 export function KeyboardShortcutsHelp() {
+  const { t } = useTranslation();
   const shortcuts = [
-    { keys: "⌘N", description: "New Download" },
-    { keys: "⌘⇧I", description: "Batch Import" },
-    { keys: "⌘,", description: "Settings" },
-    { keys: "⌘⇧Q", description: "Queue Manager" },
-    { keys: "⌘A", description: "Select All" },
-    { keys: "Esc", description: "Clear Selection" },
-    { keys: "⌘V", description: "Paste URL" },
+    { keys: "⌘N", description: t("shortcuts.newDownload") },
+    { keys: "⌘⇧I", description: t("shortcuts.batchImport") },
+    { keys: "⌘,", description: t("shortcuts.settings") },
+    { keys: "⌘⇧Q", description: t("shortcuts.queueManager") },
+    { keys: "⌘A", description: t("shortcuts.selectAll") },
+    { keys: "Esc", description: t("shortcuts.clearSelection") },
+    { keys: "⌘V", description: t("shortcuts.pasteUrl") },
   ];
 
   return (

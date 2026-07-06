@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { translateCategoryName } from "@/stores/categories";
 import {
   ChevronDown,
   ChevronRight,
@@ -146,7 +147,7 @@ export function FolderList() {
                               />
                             </div>
                             <span className="text-sm truncate flex-1">
-                              {category.name}
+                              {translateCategoryName(category.name)}
                             </span>
 
                             {/* More menu */}

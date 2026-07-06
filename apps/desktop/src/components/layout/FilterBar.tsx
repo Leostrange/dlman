@@ -1,5 +1,6 @@
 import { Search, ArrowUpDown, SortAsc, SortDesc, Activity, ListTodo, Folder, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { translateCategoryName } from "@/stores/categories";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +15,7 @@ import {
   type DownloadFilter,
   type SortField,
 } from "@/stores/downloads";
-import { useQueueStore, useQueuesArray } from "@/stores/queues";
+import { useQueueStore, useQueuesArray, translateQueueName } from "@/stores/queues";
 import { useCategoryStore, useCategoriesArray } from "@/stores/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 
@@ -117,7 +118,7 @@ export function FilterBar() {
             </SelectItem>
             {queues.map((queue) => (
               <SelectItem key={queue.id} value={queue.id} className="text-xs">
-                <span style={{ color: queue.color }}>{queue.name}</span>
+                <span style={{ color: queue.color }}>{translateQueueName(queue.name)}</span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -149,7 +150,7 @@ export function FilterBar() {
                       className="h-3 w-3 flex-shrink-0" 
                       style={{ color: category.color }}
                     />
-                    <span style={{ color: category.color }}>{category.name}</span>
+                    <span style={{ color: category.color }}>{translateCategoryName(category.name)}</span>
                   </div>
                 </SelectItem>
               );

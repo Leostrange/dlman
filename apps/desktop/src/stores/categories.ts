@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
+import i18n from "@/i18n";
 
 export interface Category {
   id: string;
@@ -9,6 +10,22 @@ export interface Category {
   color: string;
   extensions: string[]; // File extensions that belong to this category
   customPath?: string;  // Optional custom download path for this category
+}
+
+/** Map of default category names to their i18n keys. */
+const DEFAULT_CATEGORY_I18N: Record<string, string> = {
+  "Music": "defaultCategories.music",
+  "Videos": "defaultCategories.videos",
+  "Documents": "defaultCategories.documents",
+  "Images": "defaultCategories.images",
+  "Archives": "defaultCategories.archives",
+  "Programs": "defaultCategories.programs",
+};
+
+/** Translate a category name if it's a known default, otherwise return as-is. */
+export function translateCategoryName(name: string): string {
+  const key = DEFAULT_CATEGORY_I18N[name];
+  return key ? i18n.t(key) : name;
 }
 
 interface CategoryState {

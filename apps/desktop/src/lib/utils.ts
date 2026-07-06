@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import i18n from "@/i18n";
 
 /**
  * Merge Tailwind classes with clsx
@@ -9,38 +10,41 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Format bytes to human readable string
+ * Format bytes to human readable string (localized units)
  */
 export function formatBytes(bytes: number, decimals = 2): string {
-  if (bytes === 0) return "0 B";
+  if (bytes === 0) return `0 ${i18n.t("units.b")}`;
 
   const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const sizes = ["units.b", "units.kb", "units.mb", "units.gb", "units.tb"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${i18n.t(sizes[i])}`;
 }
 
 /**
- * Format speed to human readable string
+ * Format speed to human readable string (localized)
  */
 export function formatSpeed(bytesPerSecond: number): string {
-  return `${formatBytes(bytesPerSecond)}/s`;
+  return `${formatBytes(bytesPerSecond)}${i18n.t("units.perSecond")}`;
 }
 
 /**
- * Format duration in seconds to human readable string
+ * Format duration in seconds to human readable string (localized)
  */
 export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  const s = i18n.t("units.seconds");
+  const m = i18n.t("units.minutes");
+  const h = i18n.t("units.hours");
+  if (seconds < 60) return `${seconds}${s}`;
   if (seconds < 3600) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}m ${secs}s`;
+    return `${mins}${m} ${secs}${s}`;
   }
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
-  return `${hours}h ${mins}m`;
+  return `${hours}${h} ${mins}${m}`;
 }
 
 /**
@@ -51,9 +55,9 @@ export function extractFilename(url: string): string {
     const urlObj = new URL(url);
     const pathname = urlObj.pathname;
     const filename = pathname.split("/").pop();
-    return filename || "download";
+    return filename || i18n.t("common.download");
   } catch {
-    return "download";
+    return i18n.t("common.download");
   }
 }
 

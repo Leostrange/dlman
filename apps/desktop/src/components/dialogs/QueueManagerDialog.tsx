@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Settings2, Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Dialog,
@@ -12,11 +13,12 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { QueueDialog } from './QueueDialog';
 import { useUIStore } from '@/stores/ui';
-import { useQueuesArray, DEFAULT_QUEUE_ID } from '@/stores/queues';
+import { useQueuesArray, DEFAULT_QUEUE_ID, translateQueueName } from '@/stores/queues';
 import { cn } from '@/lib/utils';
 import type { Queue } from '@/types';
 
 export function QueueManagerDialog() {
+  const { t } = useTranslation();
   const { showQueueManagerDialog, setShowQueueManagerDialog } = useUIStore();
   const queues = useQueuesArray();
 
@@ -59,10 +61,10 @@ export function QueueManagerDialog() {
           <DialogHeader className="px-6 pt-6 pb-2">
             <DialogTitle className="flex items-center gap-2">
               <Settings2 className="h-5 w-5" />
-              Manage Queues
+              {t("queueManager.title")}
             </DialogTitle>
             <DialogDescription>
-              Select a queue to edit or create a new one.
+              {t("queueManager.description")}
             </DialogDescription>
           </DialogHeader>
 
@@ -85,7 +87,7 @@ export function QueueManagerDialog() {
                     />
                     {queue.icon && <span className="text-base">{queue.icon}</span>}
                     <div className="flex-1 min-w-0">
-                      <div className="truncate font-medium">{queue.name}</div>
+                      <div className="truncate font-medium">{translateQueueName(queue.name)}</div>
                       {queue.schedule?.enabled && (
                         <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
                           <Clock className="h-2.5 w-2.5" />
@@ -96,7 +98,7 @@ export function QueueManagerDialog() {
                       )}
                     </div>
                     {queue.id === DEFAULT_QUEUE_ID && (
-                      <span className="text-[10px] px-1 py-0.5 rounded bg-muted">default</span>
+                      <span className="text-[10px] px-1 py-0.5 rounded bg-muted">{t("queueManager.default")}</span>
                     )}
                   </button>
                 ))}
@@ -112,7 +114,7 @@ export function QueueManagerDialog() {
                 onClick={startCreating}
               >
                 <Plus className="h-4 w-4" />
-                New Queue
+                {t("queueManager.newQueue")}
               </Button>
             </div>
           </div>

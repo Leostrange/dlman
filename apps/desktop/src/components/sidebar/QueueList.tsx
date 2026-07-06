@@ -31,7 +31,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useQueueStore, useQueuesArray, DEFAULT_QUEUE_ID } from "@/stores/queues";
+import { useQueueStore, useQueuesArray, DEFAULT_QUEUE_ID, translateQueueName } from "@/stores/queues";
 import { cn } from "@/lib/utils";
 import { QueueDialog } from "@/components/dialogs/QueueDialog";
 import { DroppableSidebarItem } from "@/components/dnd/DroppableSidebarItem";
@@ -260,7 +260,7 @@ function QueueItem({
           )}
 
           {/* Name */}
-          <span className="text-sm truncate flex-1">{queue.name}</span>
+          <span className="text-sm truncate flex-1">{translateQueueName(queue.name)}</span>
 
           {/* Scheduled start countdown */}
           {timeUntil && (

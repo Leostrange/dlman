@@ -58,7 +58,7 @@ import {
 
 import { useUIStore } from '@/stores/ui';
 import { useSettingsStore } from '@/stores/settings';
-import { useCategoryStore, Category } from '@/stores/categories';
+import { useCategoryStore, Category, translateCategoryName } from '@/stores/categories';
 import { useCredentialsStore } from '@/stores/credentials';
 import { getIconComponent } from '@/lib/categoryIcons';
 import { CategoryDialog } from './CategoryDialog';
@@ -726,7 +726,7 @@ export function SettingsDialog() {
                           <IconComponent className="h-5 w-5" style={{ color: category.color }} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <span className="font-medium">{category.name}</span>
+                          <span className="font-medium">{translateCategoryName(category.name)}</span>
                           <p className="text-xs text-muted-foreground truncate">
                             {category.extensions.length > 0
                               ? category.extensions.slice(0, 8).join(', ') + (category.extensions.length > 8 ? '...' : '')

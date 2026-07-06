@@ -118,6 +118,8 @@
     "close": "Close",
     "confirm": "Confirm",
     "delete": "Delete",
+    "download": "download",
+    "downloading": "downloading...",
     "edit": "Edit",
     "pause": "Pause",
     "remove": "Remove",
@@ -369,6 +371,7 @@
   "queues": {
     "addQueue": "Add Queue",
     "changeColor": "Change Color",
+    "defaultName": "Default",
     "deleteQueue": "Delete Queue",
     "editQueue": "Edit Queue",
     "pauseAll": "Pause All",
@@ -693,5 +696,46 @@
     "subtitle": "Fast, modern download manager with multi-segment acceleration",
     "tip": "Tip: Paste links with Ctrl+V or drag & drop URLs anywhere",
     "title": "Welcome to DLMan"
+  },
+  "shortcuts": {
+    "newDownload": "New Download",
+    "batchImport": "Batch Import",
+    "settings": "Settings",
+    "queueManager": "Queue Manager",
+    "selectAll": "Select All",
+    "clearSelection": "Clear Selection",
+    "pasteUrl": "Paste URL",
+    "deleteSelected": "Delete Selected",
+    "toggleDevTools": "Toggle DevTools (Dev Mode)"
+  },
+  "queueManager": {
+    "title": "Manage Queues",
+    "description": "Select a queue to edit or create a new one.",
+    "default": "default",
+    "newQueue": "New Queue"
+  },
+  "timePicker": {
+    "selectTime": "Select time",
+    "clear": "Clear",
+    "setTime": "Set Time"
+  },
+  "defaultCategories": {
+    "music": "Music",
+    "videos": "Videos",
+    "documents": "Documents",
+    "images": "Images",
+    "archives": "Archives",
+    "programs": "Programs"
+  },
+  "units": {
+    "b": "B",
+    "kb": "KB",
+    "mb": "MB",
+    "gb": "GB",
+    "tb": "TB",
+    "perSecond": "/s",
+    "seconds": "s",
+    "minutes": "m",
+    "hours": "h"
   }
 }

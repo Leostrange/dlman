@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
+import i18n from "@/i18n";
 import type { Queue } from "@/types";
+
+/** Translate a queue name if it's the default, otherwise return as-is. */
+export function translateQueueName(name: string): string {
+  if (name === "Default") return i18n.t("queues.defaultName");
+  return name;
+}
 
 interface QueueState {
   // State

@@ -13,7 +13,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "@/stores/ui";
 import { useDownloadStore } from "@/stores/downloads";
-import { useCategoryStore } from "@/stores/categories";
+import { useCategoryStore, translateCategoryName } from "@/stores/categories";
 import { toast } from "sonner";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -96,7 +96,7 @@ export function DndProvider({ children }: DndProviderProps) {
               }
             });
 
-            toast.success(t('toasts.movedToCategoryN', { n: idsToMove.length, category: category.name }));
+            toast.success(t('toasts.movedToCategoryN', { n: idsToMove.length, category: translateCategoryName(category.name) }));
           }
         }
       }

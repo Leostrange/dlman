@@ -22,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useDownloadStore, useFilteredDownloads } from '@/stores/downloads';
-import { useQueuesArray } from '@/stores/queues';
+import { useQueuesArray, translateQueueName } from '@/stores/queues';
 import { useUIStore } from '@/stores/ui';
 import { cn } from '@/lib/utils';
 
@@ -259,7 +259,7 @@ export function SelectionToolbar({ className }: SelectionToolbarProps) {
                       className="w-3 h-3 rounded-full mr-2"
                       style={{ backgroundColor: queue.color }}
                     />
-                    {queue.name}
+                    {translateQueueName(queue.name)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
